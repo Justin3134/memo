@@ -2,9 +2,17 @@ import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState } from "react";
 import { User, Clock, Bell, Mic, Trash2 } from "lucide-react";
 
+const voiceModels = [
+  { id: "aria", name: "Aria", desc: "Warm, conversational female voice" },
+  { id: "roger", name: "Roger", desc: "Calm, reassuring male voice" },
+  { id: "sarah", name: "Sarah", desc: "Gentle, friendly female voice" },
+  { id: "charlie", name: "Charlie", desc: "Soft-spoken, patient male voice" },
+];
+
 const Settings = () => {
   const [callTime, setCallTime] = useState("10:00");
   const [callFreq, setCallFreq] = useState("daily");
+  const [selectedVoice, setSelectedVoice] = useState("aria");
 
   return (
     <MemoLayout>
@@ -87,25 +95,26 @@ const Settings = () => {
             <button className="text-[12px] text-primary font-medium hover:underline mt-2">+ Add family member</button>
           </section>
 
-          {/* Voice Persona */}
+          {/* Voice Model */}
           <section className="bg-card rounded-lg border border-border p-5">
             <div className="flex items-center gap-2 mb-4">
               <Mic className="w-4 h-4 text-primary" />
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Voice Persona</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Call Voice</p>
             </div>
-            <p className="text-[11px] text-muted-foreground mb-3">Upload a family member's voice so Memo sounds familiar during calls.</p>
-            <div
-              className="border border-dashed border-border rounded-lg p-6 text-center hover:border-foreground/30 transition-colors cursor-pointer"
-              onClick={() => document.getElementById("voice-upload")?.click()}
-            >
-              <Mic className="w-5 h-5 text-muted-foreground mx-auto mb-1.5" />
-              <p className="text-[13px] font-medium text-foreground">Drop an .mp3 or .wav file here</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">or click to browse</p>
-              <input id="voice-upload" type="file" accept=".mp3,.wav,.m4a" className="hidden" />
-            </div>
-            <div className="flex gap-2 mt-3">
-              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-foreground text-background">Default Voice</button>
-              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-muted text-muted-foreground">Family Clone</button>
+            <p className="text-[11px] text-muted-foreground mb-3">Choose the voice Memo uses when calling Margaret.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {voiceModels.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedVoice(v.id)}
+                  className={`text-left border rounded-md p-3 transition-colors ${
+                    selectedVoice === v.id ? "border-foreground bg-foreground/5" : "border-border hover:border-foreground/30"
+                  }`}
+                >
+                  <p className="text-[12px] font-medium text-foreground">{v.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{v.desc}</p>
+                </button>
+              ))}
             </div>
           </section>
 

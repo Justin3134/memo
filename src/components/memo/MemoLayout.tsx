@@ -11,14 +11,14 @@ export function MemoLayout({ children }: MemoLayoutProps) {
       <MemoSidebar />
       <div className="flex-1 flex flex-col min-h-screen">
         {/* Top bar */}
-        <header className="flex items-center justify-end px-8 py-4 border-b border-border bg-card/50">
+        <header className="flex items-center justify-end px-8 py-3.5 border-b border-border bg-card">
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-sm font-medium text-foreground">Monitoring</p>
-              <p className="text-xs text-muted-foreground">Margaret Wilson</p>
+              <p className="text-xs font-medium text-foreground">Margaret Wilson</p>
+              <p className="text-[11px] text-muted-foreground">Active patient</p>
             </div>
-            <div className="w-9 h-9 rounded-full bg-memo-sage-light flex items-center justify-center">
-              <User className="w-4 h-4 text-primary" />
+            <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+              <User className="w-3.5 h-3.5 text-muted-foreground" />
             </div>
           </div>
         </header>

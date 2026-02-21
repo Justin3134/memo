@@ -1,100 +1,162 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
-import { Play, BookOpen, Clock } from "lucide-react";
-
-const featuredVideo = {
-  title: "Understanding Pause Frequency Changes",
-  description: "Generated based on elevated pause frequency detected this week. This video explains what increased pauses during speech may indicate, including fatigue, medication effects, and early neurological signals.",
-  duration: "3:42",
-  date: "Feb 20, 2026",
-  trigger: "Pause frequency 4.2/min vs 3.1 baseline",
-};
-
-const previousVideos = [
-  { title: "Early Signs of Cognitive Decline", duration: "4:15", date: "Feb 14", trigger: "Cognitive score drop" },
-  { title: "Speech Rate Changes and What They Mean", duration: "3:28", date: "Feb 10", trigger: "Speech rate variance" },
-  { title: "Managing Fatigue in Elderly Patients", duration: "2:56", date: "Feb 5", trigger: "Repeated fatigue reports" },
-  { title: "Word-Finding Difficulty Explained", duration: "3:10", date: "Jan 30", trigger: "Word-finding score decline" },
-];
-
-const staticGuides = [
-  { title: "Understanding Cognitive Decline", subtitle: "A guide for families on recognizing and responding to early signs of cognitive change." },
-  { title: "When to Talk to a Doctor About Speech Changes", subtitle: "Practical guidance on which speech patterns warrant medical consultation." },
-  { title: "Supporting Daily Wellness", subtitle: "How to maintain and improve quality of life through daily routines and engagement." },
-];
+import { ArrowRight, AlertTriangle, BookOpen, Sparkles, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
 const CareGuide = () => {
+  const { loading, error, patient, calls, alerts } = useMemoDashboardData();
+
+  const latestAlert = alerts[0];
+  const latestGuidanceTopic = calls.find((call) => call.videoGuidanceTopic)?.videoGuidanceTopic;
+  const activeAlerts = alerts
+    .slice()
+    .sort((a, b) => b.timestamp - a.timestamp);
+
+  if (loading) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-muted-foreground">Loading care guidance...</p>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-memo-red">Unable to load care guide: {error}</p>
+          <Link to="/dashboard" className="inline-flex items-center gap-1 mt-3 text-[12px] font-medium text-foreground hover:underline">
+            Return to dashboard <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (!patient) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Guidance</p>
+          <h1 className="text-xl font-display text-foreground tracking-tight mb-1">Care Guide</h1>
+          <p className="text-[13px] text-muted-foreground mb-6">Framework mode: no patient profile yet.</p>
+          <div className="grid gap-3 sm:grid-cols-3 mb-4">
+            <div className="bg-card rounded-lg border border-border p-4">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Primary Signal</p>
+              <p className="text-[12px] text-muted-foreground">No active guidance yet.</p>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Alerts</p>
+              <p className="text-[12px] text-muted-foreground">No alerts available.</p>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Next Step</p>
+              <p className="text-[12px] text-muted-foreground">Complete onboarding to enable personalized care guidance.</p>
+            </div>
+          </div>
+          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
+            Register a patient <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+      </MemoLayout>
+    );
+  }
+
   return (
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Guidance</p>
-        <div className="flex items-center gap-2.5 mb-1">
-          <h1 className="text-xl font-display text-foreground tracking-tight">Care Guide</h1>
-          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">powered by MiniMax</span>
-        </div>
-        <p className="text-[13px] text-muted-foreground mb-6">Personalized guidance based on Margaret's recent patterns</p>
+        <h1 className="text-xl font-display text-foreground tracking-tight mb-1">Care Guide</h1>
+        <p className="text-[13px] text-muted-foreground mb-6">Personalized guidance for {patient.name}</p>
 
         {/* Featured Video */}
         <div className="bg-card rounded-lg border border-border overflow-hidden mb-6">
-          <div className="aspect-video bg-secondary flex items-center justify-center relative">
-            <div className="w-14 h-14 rounded-full bg-foreground/80 flex items-center justify-center cursor-pointer hover:bg-foreground transition-colors">
-              <Play className="w-6 h-6 text-background ml-0.5" />
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-2">
+              <BookOpen className="w-4 h-4 text-foreground" />
+              <p className="text-[10px] font-semibold text-primary uppercase tracking-wide">Primary Guidance Signal</p>
             </div>
-            <div className="absolute bottom-3 right-3 bg-foreground/70 text-background text-[11px] px-2 py-0.5 rounded font-medium">
-              {featuredVideo.duration}
-            </div>
-          </div>
-          <div className="p-5">
-            <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-1">Latest Guidance</p>
-            <h2 className="text-base font-display text-foreground mb-1.5">{featuredVideo.title}</h2>
-            <p className="text-[12px] text-muted-foreground leading-relaxed mb-2">{featuredVideo.description}</p>
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {featuredVideo.date}</span>
-              <span className="text-border">|</span>
-              <span>Triggered by: {featuredVideo.trigger}</span>
-            </div>
+            {latestAlert ? (
+              <>
+                <h2 className="text-base font-display text-foreground mb-1.5">{latestAlert.signalType}</h2>
+                <p className="text-[12px] text-muted-foreground leading-relaxed mb-2">{latestAlert.description}</p>
+                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                  <span>Severity: <span className="font-medium text-foreground">{latestAlert.severity}</span></span>
+                  <span>Today: <span className="font-medium text-foreground">{latestAlert.currentValue}</span></span>
+                  <span>Baseline: <span className="font-medium text-foreground">{latestAlert.baselineValue}</span></span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Recommended action: {latestAlert.recommendedAction || "Continue daily observation and review if this persists."}
+                </p>
+              </>
+            ) : latestGuidanceTopic ? (
+              <>
+                <h2 className="text-base font-display text-foreground mb-1.5">Guidance Topic</h2>
+                <p className="text-[12px] text-muted-foreground leading-relaxed">{latestGuidanceTopic}</p>
+              </>
+            ) : (
+              <p className="text-[12px] text-muted-foreground leading-relaxed">No active guidance signals yet. Keep receiving calls to build trend-based guidance.</p>
+            )}
           </div>
         </div>
 
-        {/* Previous Videos */}
+        {/* Active Flags */}
         <div className="mb-6">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Previous Guidance</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {previousVideos.map((video, i) => (
-              <div key={i} className="bg-card rounded-lg border border-border p-4 hover:bg-secondary/30 transition-colors cursor-pointer">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center flex-shrink-0">
-                    <Play className="w-4 h-4 text-muted-foreground" />
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-memo-red" />
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Active Alerts</p>
+          </div>
+          <div className="space-y-2.5">
+            {activeAlerts.length > 0 ? (
+              activeAlerts.map((alert) => (
+                <div key={alert._id} className="bg-card rounded-lg border border-border p-4 flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <p className="text-[13px] font-medium text-foreground">{alert.signalType}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{alert.description}</p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-foreground mb-0.5">{video.title}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span>{video.date}</span>
-                      <span className="text-border">|</span>
-                      <span>{video.duration}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-1">{video.trigger}</p>
-                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-1 rounded font-semibold ${
+                      alert.severity === "High"
+                        ? "bg-memo-red-light text-memo-red"
+                        : alert.severity === "Medium"
+                          ? "bg-memo-amber-light text-memo-amber"
+                          : "bg-memo-green/20 text-memo-green"
+                    }`}
+                  >
+                    {alert.severity}
+                  </span>
                 </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No active alerts. No immediate follow-up action required.</p>
+            )}
           </div>
         </div>
 
-        {/* Static Guides */}
-        <div>
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">General Guides</p>
-          <div className="space-y-2">
-            {staticGuides.map((guide, i) => (
-              <div key={i} className="bg-card rounded-lg border border-border p-4 flex items-center gap-3 hover:bg-secondary/30 transition-colors cursor-pointer">
-                <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <BookOpen className="w-4 h-4 text-primary" />
-                </div>
-                <div>
-                  <p className="text-[13px] font-medium text-foreground">{guide.title}</p>
-                  <p className="text-[11px] text-muted-foreground">{guide.subtitle}</p>
-                </div>
-              </div>
-            ))}
+        {/* Data Framework */}
+        <div className="grid gap-3 sm:grid-cols-3 mb-6">
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Baseline Check</p>
+            </div>
+            <p className="text-[12px] text-foreground leading-relaxed">
+              Baseline cognitive score: {patient.baseline?.cognitiveScore ? Math.round(patient.baseline.cognitiveScore) : "Not calculated"}
+            </p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Signal Health</p>
+            </div>
+            <p className="text-[12px] text-foreground leading-relaxed">Recent call count: {calls.length}</p>
+            <p className="text-[12px] text-foreground leading-relaxed mt-1">Recent alerts: {activeAlerts.length}</p>
+          </div>
+          <div className="bg-card rounded-lg border border-border p-4">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Framework</p>
+            <p className="text-[12px] text-foreground leading-relaxed">Use alerts, call summaries, and trend movement to decide when to escalate with a clinician.</p>
           </div>
         </div>
       </div>

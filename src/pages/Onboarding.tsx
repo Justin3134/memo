@@ -2,20 +2,29 @@ import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { User, Upload, Users, Check, ChevronRight, Phone, Clock, X, CheckCircle2 } from "lucide-react";
-import { upsertPatientFromOnboarding } from "@/lib/memoBackend";
+import { triggerCallNow, upsertPatientFromOnboarding } from "@/lib/memoBackend";
 
 const steps = ["Patient", "Voice", "Family"];
+const getCurrentLocalTime = () => {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+};
 
 const Onboarding = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [completed, setCompleted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCallingNow, setIsCallingNow] = useState(false);
   const [elderName, setElderName] = useState("");
   const [elderPhone, setElderPhone] = useState("");
-  const [callTime, setCallTime] = useState("10:00");
+  const [callPreference, setCallPreference] = useState<"scheduled" | "now">("scheduled");
+  const [callTime, setCallTime] = useState(getCurrentLocalTime());
   const [fileName, setFileName] = useState("");
   const [familyMembers, setFamilyMembers] = useState([{ name: "", phone: "", relationship: "" }]);
   const [errors, setErrors] = useState({ name: "", phone: "", callTime: "" });
+  const [callNowMessage, setCallNowMessage] = useState("");
 
   const validatePatientFields = () => {
     const nextErrors = { name: "", phone: "", callTime: "" };
@@ -52,6 +61,11 @@ const Onboarding = () => {
     };
   };
 
+  const isPatientStepValid =
+    elderName.trim().length > 0 &&
+    /^\+?\d[\d\s().-]{6,}$/.test(elderPhone.trim()) &&
+    /^\d{2}:\d{2}$/.test(callTime);
+
   const addFamilyMember = () => {
     setFamilyMembers(prev => [...prev, { name: "", phone: "", relationship: "" }]);
   };
@@ -81,6 +95,26 @@ const Onboarding = () => {
       setErrors({ name: "", phone: "", callTime: "" });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCallNow = async () => {
+    setCallNowMessage("");
+    if (!validatePatientFields()) return;
+
+    setIsCallingNow(true);
+    try {
+      await triggerCallNow({
+        name: elderName,
+        phone: elderPhone,
+      });
+      setCallNowMessage("Calling now. Check your phone.");
+    } catch (error) {
+      setCallNowMessage(
+        error instanceof Error ? error.message : "Unable to trigger call right now."
+      );
+    } finally {
+      setIsCallingNow(false);
     }
   };
 
@@ -178,11 +212,11 @@ const Onboarding = () => {
                       type="text"
                       value={elderName}
                       onChange={e => setElderName(e.target.value)}
-                    onBlur={() => validatePatientFields()}
+                      onBlur={() => validatePatientFields()}
                       placeholder="Margaret Wilson"
                       className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
                     />
-                  {errors.name && <p className="text-[11px] text-destructive mt-1">{errors.name}</p>}
+                    {errors.name && <p className="text-[11px] text-destructive mt-1">{errors.name}</p>}
                   </div>
                   <div>
                     <label className="text-[12px] font-medium text-muted-foreground mb-1 block">Phone</label>
@@ -200,7 +234,34 @@ const Onboarding = () => {
                     {errors.phone && <p className="text-[11px] text-destructive mt-1">{errors.phone}</p>}
                   </div>
                   <div>
-                    <label className="text-[12px] font-medium text-muted-foreground mb-1 block">Call Time</label>
+                    <label className="text-[12px] font-medium text-muted-foreground mb-1 block">Preferred Call Time</label>
+                    <div className="flex items-center gap-1 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setCallPreference("scheduled")}
+                        className={`px-2 py-1 rounded text-[11px] transition-colors ${
+                          callPreference === "scheduled"
+                            ? "bg-foreground text-background"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        Scheduled
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCallPreference("now");
+                          setCallTime(getCurrentLocalTime());
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] transition-colors ${
+                          callPreference === "now"
+                            ? "bg-foreground text-background"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        Call now
+                      </button>
+                    </div>
                     <div className="relative">
                       <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                       <input
@@ -208,10 +269,27 @@ const Onboarding = () => {
                         value={callTime}
                         onChange={e => setCallTime(e.target.value)}
                         onBlur={() => validatePatientFields()}
+                        disabled={callPreference === "now"}
                         className="w-full pl-8 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
                     {errors.callTime && <p className="text-[11px] text-destructive mt-1">{errors.callTime}</p>}
+                    {callPreference === "now" && (
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Time is set to now for testing.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleCallNow}
+                      disabled={!isPatientStepValid || isCallingNow}
+                      className="mt-2 w-full px-3 py-2 rounded-md border border-foreground text-[12px] font-medium text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCallingNow ? "Calling..." : "Call me now"}
+                    </button>
+                    {callNowMessage ? (
+                      <p className="text-[11px] mt-1 text-muted-foreground">{callNowMessage}</p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -286,13 +364,13 @@ const Onboarding = () => {
           <button
             onClick={() => {
               if (currentStep < 2) {
-                if (!validatePatientFields()) return;
+                if (currentStep === 0 && !validatePatientFields()) return;
                 setCurrentStep((prev) => prev + 1);
               } else {
                 handleComplete();
               }
             }}
-            disabled={isSubmitting}
+            disabled={isSubmitting || (currentStep === 0 && !isPatientStepValid)}
             className="flex items-center gap-1 px-4 py-1.5 bg-primary text-primary-foreground text-[13px] font-medium rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? "Saving..." : currentStep === 2 ? "Register Patient" : "Continue"}

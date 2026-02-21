@@ -56,10 +56,40 @@ export async function upsertPatientFromOnboarding(args: {
   return patientId;
 }
 
+export async function triggerCallNow(args: { phone: string; name?: string }) {
+  const response = await fetch("http://localhost:3001/call-now", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phoneNumber: args.phone.trim(),
+      name: args.name?.trim() || "Patient",
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || "Failed to trigger immediate call.");
+  }
+
+  return await response.json();
+}
+
+const fetchPatientsForFamily = async (familyUserId: string) => {
+  try {
+    return await convexClient.query("patients:listForFamily", { familyUserId });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Could not find public function") && message.includes("patients:listForFamily")) {
+      return [];
+    }
+    throw error;
+  }
+};
+
 export async function fetchDashboardData() {
   const familyUserId = getDefaultFamilyId();
-  const patients = await convexClient.query("patients:listForFamily", { familyUserId });
-  const patient = patients.length ? patients[0] : await getFirstPatientFallback();
+  const patients = await fetchPatientsForFamily(familyUserId);
+  const patient = patients.length ? patients[0] : null;
   if (!patient) {
     return { patient: null, calls: [], memories: [], alerts: [] };
   }
@@ -85,9 +115,4 @@ export async function fetchDashboardData() {
     memories: memories as ConvexMemory[],
     alerts: alerts as ConvexAlert[],
   };
-}
-
-async function getFirstPatientFallback() {
-  const all = await convexClient.query("patients:getAll");
-  return all?.[0] ?? null;
 }

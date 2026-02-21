@@ -100,7 +100,22 @@ const Dashboard = () => {
     return (
       <MemoLayout>
         <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
-          <p className="text-sm text-muted-foreground">No patient found for this family profile.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-display text-foreground tracking-tight">Dashboard</h1>
+              <p className="text-[11px] text-muted-foreground">Framework mode: no patient profile yet.</p>
+            </div>
+            <span className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground">Setup Needed</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {["Cognitive", "Motor", "Emotional"].map((label) => (
+              <div key={label} className="border border-border rounded-lg p-3 bg-card">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+                <p className="text-xl font-display text-foreground">--<span className="text-[11px] text-muted-foreground font-body">/100</span></p>
+                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">No live data yet.</p>
+              </div>
+            ))}
+          </div>
           <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
             Register a patient
           </Link>

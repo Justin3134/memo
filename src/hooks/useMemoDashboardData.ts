@@ -20,6 +20,11 @@ const initialState: DashboardState = {
   alerts: [],
 };
 
+const isMissingPublicFunctionError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("Could not find public function");
+};
+
 export const useMemoDashboardData = () => {
   const [state, setState] = useState<DashboardState>(initialState);
 
@@ -33,6 +38,19 @@ export const useMemoDashboardData = () => {
         ...data,
       }));
     } catch (error) {
+      if (isMissingPublicFunctionError(error)) {
+        setState((prev) => ({
+          ...prev,
+          loading: false,
+          error: null,
+          patient: null,
+          calls: [],
+          memories: [],
+          alerts: [],
+        }));
+        return;
+      }
+
       setState((prev) => ({
         ...prev,
         loading: false,

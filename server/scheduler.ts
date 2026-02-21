@@ -7,6 +7,15 @@ import { buildSystemPrompt } from "./systemPrompt";
 dotenv.config();
 
 const convex = new ConvexHttpClient(process.env.CONVEX_DEPLOYMENT ?? "");
+const normalizeToE164 = (rawPhone: string) => {
+  const digits = String(rawPhone ?? "").replace(/\D/g, "");
+  if (String(rawPhone ?? "").trim().startsWith("+")) {
+    return `+${digits}`;
+  }
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+};
 
 cron.schedule("*/1 * * * *", async () => {
   try {
@@ -39,6 +48,11 @@ cron.schedule("*/1 * * * *", async () => {
 });
 
 async function triggerVapiCall(patient: any, systemPrompt: string) {
+  const e164Number = normalizeToE164(patient.phoneNumber);
+  if (!e164Number) {
+    throw new Error(`Invalid patient phone format for ${patient._id}`);
+  }
+
   const response = await fetch("https://api.vapi.ai/call", {
     method: "POST",
     headers: {
@@ -47,7 +61,7 @@ async function triggerVapiCall(patient: any, systemPrompt: string) {
     },
     body: JSON.stringify({
       phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
-      customer: { number: patient.phoneNumber },
+      customer: { number: e164Number },
       assistant: {
         model: {
           provider: "openai",
@@ -55,7 +69,7 @@ async function triggerVapiCall(patient: any, systemPrompt: string) {
           systemPrompt,
         },
         voice: {
-          provider: "elevenlabs",
+          provider: "11labs",
           voiceId: patient.voiceId ?? process.env.DEFAULT_VOICE_ID,
         },
         transcriber: {

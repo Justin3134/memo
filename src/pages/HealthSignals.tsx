@@ -163,7 +163,18 @@ const HealthSignals = () => {
     return (
       <MemoLayout>
         <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
-          <p className="text-sm text-muted-foreground">No patient found for this family yet.</p>
+          <h1 className="text-lg font-display text-foreground tracking-tight">Health Signals</h1>
+          <p className="text-[11px] text-muted-foreground">
+            Framework mode: no patient profile yet. Add a patient and complete calls to populate live health signals.
+          </p>
+          <div className="border border-border rounded-lg p-3 bg-card">
+            <div className="grid grid-cols-10 gap-[2px]">
+              {Array.from({ length: 30 }).map((_, idx) => (
+                <div key={idx} className="h-5 rounded-sm bg-muted" />
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">No timeline data available.</p>
+          </div>
           <Link
             to="/onboarding"
             className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline"

@@ -1,6 +1,8 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { User, Clock, Bell, Mic, Trash2, Volume2, Upload } from "lucide-react";
+import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
+import { Link } from "react-router-dom";
 
 const voiceModels = [
   { id: "aria", name: "Aria", desc: "Warm, conversational female voice" },
@@ -12,9 +14,57 @@ const voiceModels = [
 const inputClasses = "w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground";
 
 const Settings = () => {
+  const { loading, error, patient } = useMemoDashboardData();
   const [callTime, setCallTime] = useState("10:00");
   const [callFreq, setCallFreq] = useState("daily");
   const [selectedVoice, setSelectedVoice] = useState("aria");
+
+  useEffect(() => {
+    if (!patient) return;
+    setCallTime(patient.memoTime || "10:00");
+    setSelectedVoice(patient.voiceId || "aria");
+  }, [patient]);
+
+  if (loading) {
+    return (
+      <MemoLayout>
+        <div className="max-w-3xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-muted-foreground">Loading patient settings...</p>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MemoLayout>
+        <div className="max-w-3xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-memo-red mb-3">Unable to load settings: {error}</p>
+          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
+            Register a patient
+          </Link>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (!patient) {
+    return (
+      <MemoLayout>
+        <div className="max-w-3xl mx-auto animate-fade-in-up space-y-4">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Configuration</p>
+          <h1 className="text-xl font-display text-foreground">Settings</h1>
+          <p className="text-sm text-muted-foreground">Framework mode: no patient data yet.</p>
+          <div className="bg-card rounded-lg border border-border p-5">
+            <p className="text-[11px] text-muted-foreground">Patient fields will appear after onboarding is completed.</p>
+          </div>
+          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
+            Register a patient
+          </Link>
+        </div>
+      </MemoLayout>
+    );
+  }
 
   return (
     <MemoLayout>
@@ -32,19 +82,19 @@ const Settings = () => {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Full Name</label>
-                <input type="text" defaultValue="Margaret Wilson" className={inputClasses} />
+                <input type="text" value={patient.name} readOnly className={inputClasses} />
               </div>
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Phone</label>
-                <input type="tel" defaultValue="+1 (503) 555-0142" className={inputClasses} />
+                <input type="tel" value={patient.phoneNumber} readOnly className={inputClasses} />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Date of Birth</label>
-                <input type="text" defaultValue="March 15, 1948" className={inputClasses} />
+                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Timezone</label>
+                <input type="text" value={patient.timezone || "Not set"} readOnly className={inputClasses} />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Location</label>
-                <input type="text" defaultValue="Portland, OR" className={inputClasses} />
+                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Emergency Contact</label>
+                <input type="text" value={patient.emergencyContact || "Not set"} readOnly className={inputClasses} />
               </div>
             </div>
           </section>
@@ -69,7 +119,7 @@ const Settings = () => {
                 </select>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">If Margaret doesn't answer, Memo will retry once after 30 minutes and notify family contacts.</p>
+            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">If {patient.name} doesn't answer, Memo will retry once after 30 minutes and notify family contacts.</p>
           </section>
 
           {/* Family Notifications */}
@@ -79,17 +129,19 @@ const Settings = () => {
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Family Notifications</p>
             </div>
             <div className="space-y-2">
-              {[
-                { name: "John Wilson", relation: "Son", method: "SMS + Email" },
-                { name: "Laura Wilson", relation: "Daughter", method: "Email" },
-              ].map((f, i) => (
-                <div key={i} className="flex items-center justify-between border border-border rounded-md p-3 hover:bg-muted/20 transition-colors">
-                  <div>
-                    <p className="text-[13px] font-medium text-foreground">{f.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{f.relation} · {f.method}</p>
+              {patient.knownPeople && patient.knownPeople.length > 0 ? (
+                patient.knownPeople.map((f, i) => (
+                  <div key={`${f.name}-${i}`} className="flex items-center justify-between border border-border rounded-md p-3 hover:bg-muted/20 transition-colors">
+                    <div>
+                      <p className="text-[13px] font-medium text-foreground">{f.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{f.relationship} · Family contact</p>
+                    </div>
+                    <p className="text-[11px] font-medium text-muted-foreground">Known contact</p>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-[11px] text-muted-foreground">No family contacts added yet.</p>
+              )}
             </div>
             <button className="text-[12px] text-muted-foreground font-medium hover:text-foreground mt-3 transition-colors">+ Add family member</button>
           </section>
@@ -141,9 +193,11 @@ const Settings = () => {
               <Trash2 className="w-3.5 h-3.5 text-memo-red" />
               <p className="text-[10px] font-semibold text-memo-red uppercase tracking-wide">Danger Zone</p>
             </div>
-            <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">Removing Margaret will permanently delete all call data, health signals, and reports. This action cannot be undone.</p>
+            <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">
+              Removing {patient.name} will permanently delete all call data, health signals, and reports. This action cannot be undone.
+            </p>
             <button className="px-3.5 py-2 text-[12px] font-medium rounded-md bg-memo-red text-white hover:opacity-90 transition-opacity active:scale-[0.99]">
-              Remove Margaret from Memo
+              Remove {patient.name} from Memo
             </button>
           </section>
         </div>

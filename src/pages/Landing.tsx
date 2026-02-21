@@ -3,8 +3,15 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, Check, X, CheckCircle2, Upload, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { triggerCallNow, upsertPatientFromOnboarding } from "@/lib/memoBackend";
 
 const steps = ["Patient", "Voice", "Family"];
+const getCurrentLocalTime = () => {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+};
 
 const voiceModels = [
   { id: "aria", name: "Aria", desc: "Warm, conversational female" },
@@ -16,19 +23,96 @@ const voiceModels = [
 const Landing = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
-  const [completed, setCompleted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [elderName, setElderName] = useState("");
   const [elderPhone, setElderPhone] = useState("");
-  const [callTime, setCallTime] = useState("10:00");
+  const [callPreference, setCallPreference] = useState<"scheduled" | "now">("scheduled");
+  const [callTime, setCallTime] = useState(getCurrentLocalTime());
   const [selectedVoice, setSelectedVoice] = useState("aria");
   const [familyMembers, setFamilyMembers] = useState([{ name: "", phone: "", relationship: "" }]);
+  const [errors, setErrors] = useState({ name: "", phone: "", callTime: "" });
+  const [submitMessage, setSubmitMessage] = useState("");
 
-  const addFamilyMember = () => setFamilyMembers(prev => [...prev, { name: "", phone: "", relationship: "" }]);
-  const removeFamilyMember = (index: number) => setFamilyMembers(prev => prev.filter((_, i) => i !== index));
+  const addFamilyMember = () => setFamilyMembers((prev) => [...prev, { name: "", phone: "", relationship: "" }]);
+  const removeFamilyMember = (index: number) => setFamilyMembers((prev) => prev.filter((_, i) => i !== index));
   const updateFamilyMember = (index: number, field: string, value: string) => {
-    setFamilyMembers(prev => prev.map((m, i) => i === index ? { ...m, [field]: value } : m));
+    setFamilyMembers((prev) => prev.map((m, i) => (i === index ? { ...m, [field]: value } : m)));
   };
-  const handleComplete = () => setCompleted(true);
+  const validatePatientFields = () => {
+    const nextErrors = { name: "", phone: "", callTime: "" };
+    const trimmedName = elderName.trim();
+    const trimmedPhone = elderPhone.trim();
+    const hasCallTime = /^\d{2}:\d{2}$/.test(callTime);
+
+    if (!trimmedName) nextErrors.name = "Enter the patient name.";
+    if (!trimmedPhone || !/^\+?\d[\d\s().-]{6,}$/.test(trimmedPhone)) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+    if (!hasCallTime) nextErrors.callTime = "Set a valid call time.";
+
+    setErrors(nextErrors);
+    return Object.values(nextErrors).every((error) => !error);
+  };
+
+  const isPatientStepValid =
+    elderName.trim().length > 0 &&
+    /^\+?\d[\d\s().-]{6,}$/.test(elderPhone.trim()) &&
+    /^\d{2}:\d{2}$/.test(callTime);
+
+  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  };
+
+  const handleComplete = async () => {
+    setSubmitMessage("");
+    setIsSubmitting(true);
+    try {
+      if (!validatePatientFields()) return;
+      const effectiveCallTime = callPreference === "now" ? getCurrentLocalTime() : callTime;
+
+      await withTimeout(
+        upsertPatientFromOnboarding({
+          name: elderName.trim(),
+          phone: elderPhone.trim(),
+          callTime: effectiveCallTime,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago",
+          familyMembers: familyMembers.filter(
+            (member) => member.name.trim() || member.phone.trim() || member.relationship.trim()
+          ),
+        }),
+        12000,
+        "Timed out while saving setup data."
+      );
+
+      try {
+        await withTimeout(
+          triggerCallNow({ name: elderName, phone: elderPhone }),
+          15000,
+          "Timed out while trying to trigger the immediate test call."
+        );
+      } catch (error) {
+        setSubmitMessage(
+          `Saved setup. Immediate test call could not be confirmed: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
+      }
+      navigate("/dashboard");
+      return;
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Failed to complete registration.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background font-body flex flex-col">
@@ -45,45 +129,7 @@ const Landing = () => {
       {/* Main Content */}
       <div className="flex-1 flex items-center justify-center px-6 pb-16">
         <div className="w-full max-w-md">
-          {completed ? (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className="text-center py-12"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.15, type: "spring", stiffness: 200, damping: 15 }}
-                className="w-14 h-14 rounded-full bg-foreground flex items-center justify-center mx-auto mb-5"
-              >
-                <CheckCircle2 className="w-7 h-7 text-background" />
-              </motion.div>
-              <motion.h2
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="text-xl font-display text-foreground mb-2"
-              >
-                You're all set
-              </motion.h2>
-              <motion.p
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="text-[13px] text-muted-foreground mb-6"
-              >
-                {elderName || "Your family member"} will receive their first call at {callTime}.
-              </motion.p>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 }}>
-                <Button onClick={() => navigate("/dashboard")} className="gap-1.5 text-[13px]">
-                  Open Dashboard <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
-              </motion.div>
-            </motion.div>
-          ) : (
-            <>
+          <>
               {/* Hero */}
               <div className="mb-8">
                 <h1 className="text-2xl md:text-3xl font-display text-foreground leading-tight mb-2.5">
@@ -128,16 +174,42 @@ const Landing = () => {
                     <div className="space-y-3.5">
                       <div>
                         <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wide">Full Name</label>
-                        <input type="text" value={elderName} onChange={e => setElderName(e.target.value)} placeholder="Margaret Wilson" className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground" />
+                        <input type="text" value={elderName} onChange={e => setElderName(e.target.value)} onBlur={validatePatientFields} placeholder="Margaret Wilson" className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground" />
+                        {errors.name && <p className="text-[11px] text-destructive mt-1">{errors.name}</p>}
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wide">Phone</label>
-                          <input type="tel" value={elderPhone} onChange={e => setElderPhone(e.target.value)} placeholder="+1 (555) 000-0000" className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground" />
+                          <input type="tel" value={elderPhone} onChange={e => setElderPhone(e.target.value)} onBlur={validatePatientFields} placeholder="+1 (555) 000-0000" className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground" />
+                          {errors.phone && <p className="text-[11px] text-destructive mt-1">{errors.phone}</p>}
                         </div>
                         <div>
                           <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wide">Preferred Call Time</label>
-                          <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)} className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground" />
+                          <div className="flex items-center gap-1 mb-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setCallPreference("scheduled")}
+                              className={`px-2 py-1 rounded text-[11px] transition-colors ${
+                                callPreference === "scheduled" ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              Scheduled
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCallPreference("now");
+                                setCallTime(getCurrentLocalTime());
+                              }}
+                              className={`px-2 py-1 rounded text-[11px] transition-colors ${
+                                callPreference === "now" ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              Call now
+                            </button>
+                          </div>
+                          <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)} onBlur={validatePatientFields} disabled={callPreference === "now"} className="w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground disabled:opacity-60" />
+                          {errors.callTime && <p className="text-[11px] text-destructive mt-1">{errors.callTime}</p>}
                         </div>
                       </div>
                     </div>
@@ -217,14 +289,25 @@ const Landing = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => currentStep < 2 ? setCurrentStep(prev => prev + 1) : handleComplete()}
+                  onClick={() => {
+                    if (currentStep === 0 && !validatePatientFields()) return;
+                    if (currentStep < 2) {
+                      setCurrentStep((prev) => prev + 1);
+                    } else {
+                      handleComplete();
+                    }
+                  }}
+                  disabled={isSubmitting || (currentStep === 0 && !isPatientStepValid)}
                   className="flex-1 flex items-center justify-center gap-1 py-2.5 bg-foreground text-background text-[13px] font-medium rounded-md hover:opacity-90 transition-opacity active:scale-[0.99]"
                 >
-                  {currentStep === 2 ? "Complete Registration" : "Continue"}
+                  {isSubmitting ? "Saving..." : currentStep === 2 ? "Complete Registration" : "Continue"}
                 </button>
               </div>
+              {submitMessage ? (
+                <p className="text-[11px] text-muted-foreground mt-3">{submitMessage}</p>
+              ) : null}
             </>
-          )}
+          
 
           {/* Footer */}
           <p className="text-[10px] text-muted-foreground/60 text-center mt-10">

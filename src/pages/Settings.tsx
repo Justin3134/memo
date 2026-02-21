@@ -101,7 +101,7 @@ const Settings = () => {
               <Mic className="w-4 h-4 text-primary" />
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Call Voice</p>
             </div>
-            <p className="text-[11px] text-muted-foreground mb-3">Choose the voice Memo uses when calling Margaret.</p>
+            <p className="text-[11px] text-muted-foreground mb-3">Pick a voice model, or upload your own.</p>
             <div className="grid grid-cols-2 gap-2">
               {voiceModels.map((v) => (
                 <button
@@ -115,6 +115,19 @@ const Settings = () => {
                   <p className="text-[10px] text-muted-foreground">{v.desc}</p>
                 </button>
               ))}
+            </div>
+            <div className="relative my-4">
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-border" />
+              <p className="relative text-[10px] text-muted-foreground bg-card px-2 mx-auto w-fit text-center">or upload a voice</p>
+            </div>
+            <div
+              className="border border-dashed border-border rounded-lg p-5 text-center hover:border-foreground/30 transition-colors cursor-pointer"
+              onClick={() => document.getElementById("voice-upload-settings")?.click()}
+            >
+              <Mic className="w-4 h-4 text-muted-foreground mx-auto mb-1" />
+              <p className="text-[12px] font-medium text-foreground">Drop .mp3 or .wav here</p>
+              <p className="text-[10px] text-muted-foreground">or click to browse</p>
+              <input id="voice-upload-settings" type="file" accept=".mp3,.wav,.m4a" className="hidden" onChange={(e) => { if (e.target.files?.[0]) setSelectedVoice("custom"); }} />
             </div>
           </section>
 

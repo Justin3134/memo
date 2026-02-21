@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Check, X, CheckCircle2 } from "lucide-react";
+import { ChevronRight, Check, X, CheckCircle2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const steps = ["Patient", "Voice", "Family"];
@@ -144,8 +144,8 @@ const Landing = () => {
                   )}
 
                   {currentStep === 1 && (
-                    <div className="space-y-3">
-                      <p className="text-[13px] text-muted-foreground">Choose the voice Memo will use when calling.</p>
+                    <div className="space-y-4">
+                      <p className="text-[13px] text-muted-foreground">Pick a voice model, or upload your own.</p>
                       <div className="grid grid-cols-2 gap-2">
                         {voiceModels.map((v) => (
                           <button
@@ -159,6 +159,19 @@ const Landing = () => {
                             <p className="text-[10px] text-muted-foreground">{v.desc}</p>
                           </button>
                         ))}
+                      </div>
+                      <div className="relative">
+                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-border" />
+                        <p className="relative text-[10px] text-muted-foreground bg-background px-2 mx-auto w-fit text-center">or upload a voice</p>
+                      </div>
+                      <div
+                        className="border border-dashed border-border rounded-lg p-5 text-center hover:border-foreground/30 transition-colors cursor-pointer"
+                        onClick={() => document.getElementById("voice-upload-landing")?.click()}
+                      >
+                        <Upload className="w-4 h-4 text-muted-foreground mx-auto mb-1" />
+                        <p className="text-[12px] font-medium text-foreground">Drop .mp3 or .wav here</p>
+                        <p className="text-[10px] text-muted-foreground">or click to browse</p>
+                        <input id="voice-upload-landing" type="file" accept=".mp3,.wav,.m4a" className="hidden" onChange={(e) => { if (e.target.files?.[0]) setSelectedVoice("custom"); }} />
                       </div>
                     </div>
                   )}

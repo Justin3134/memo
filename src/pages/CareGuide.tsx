@@ -27,7 +27,10 @@ const CareGuide = () => {
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
         <p className="text-xs text-muted-foreground mb-1">Guidance</p>
-        <h1 className="text-xl font-display text-foreground mb-1">Care Guide</h1>
+        <div className="flex items-center gap-2 mb-1">
+          <h1 className="text-xl font-display text-foreground">Care Guide</h1>
+          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">powered by MiniMax</span>
+        </div>
         <p className="text-[13px] text-muted-foreground mb-6">Personalized guidance based on Margaret's recent patterns</p>
 
         {/* Featured Video */}

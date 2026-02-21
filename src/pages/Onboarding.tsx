@@ -15,6 +15,42 @@ const Onboarding = () => {
   const [callTime, setCallTime] = useState("10:00");
   const [fileName, setFileName] = useState("");
   const [familyMembers, setFamilyMembers] = useState([{ name: "", phone: "", relationship: "" }]);
+  const [errors, setErrors] = useState({ name: "", phone: "", callTime: "" });
+
+  const validatePatientFields = () => {
+    const nextErrors = { name: "", phone: "", callTime: "" };
+
+    const trimmedName = elderName.trim();
+    const trimmedPhone = elderPhone.trim();
+    const hasCallTime = /^\d{2}:\d{2}$/.test(callTime);
+
+    if (!trimmedName) {
+      nextErrors.name = "Enter the patient name.";
+    }
+
+    if (!trimmedPhone || !/^\+?\d[\d\s().-]{6,}$/.test(trimmedPhone)) {
+      nextErrors.phone = "Enter a valid phone number.";
+    }
+
+    if (!hasCallTime) {
+      nextErrors.callTime = "Set a valid call time.";
+    }
+
+    setErrors(nextErrors);
+    return Object.values(nextErrors).every((error) => !error);
+  };
+
+  const normalizePayload = () => {
+    return {
+      name: elderName.trim(),
+      phone: elderPhone.trim(),
+      callTime,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago",
+      familyMembers: familyMembers.filter(
+        (member) => member.name.trim() || member.phone.trim() || member.relationship.trim()
+      ),
+    };
+  };
 
   const addFamilyMember = () => {
     setFamilyMembers(prev => [...prev, { name: "", phone: "", relationship: "" }]);
@@ -31,14 +67,18 @@ const Onboarding = () => {
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
+      if (!validatePatientFields()) return;
+
+      const payload = normalizePayload();
       await upsertPatientFromOnboarding({
-        name: elderName || "New Patient",
-        phone: elderPhone,
-        callTime,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago",
-        familyMembers,
+        name: payload.name,
+        phone: payload.phone,
+        callTime: payload.callTime,
+        timezone: payload.timezone,
+        familyMembers: payload.familyMembers,
       });
       setCompleted(true);
+      setErrors({ name: "", phone: "", callTime: "" });
     } finally {
       setIsSubmitting(false);
     }
@@ -138,9 +178,11 @@ const Onboarding = () => {
                       type="text"
                       value={elderName}
                       onChange={e => setElderName(e.target.value)}
+                    onBlur={() => validatePatientFields()}
                       placeholder="Margaret Wilson"
                       className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
                     />
+                  {errors.name && <p className="text-[11px] text-destructive mt-1">{errors.name}</p>}
                   </div>
                   <div>
                     <label className="text-[12px] font-medium text-muted-foreground mb-1 block">Phone</label>
@@ -150,10 +192,12 @@ const Onboarding = () => {
                         type="tel"
                         value={elderPhone}
                         onChange={e => setElderPhone(e.target.value)}
+                        onBlur={() => validatePatientFields()}
                         placeholder="+1 (555) 000-0000"
                         className="w-full pl-8 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
+                    {errors.phone && <p className="text-[11px] text-destructive mt-1">{errors.phone}</p>}
                   </div>
                   <div>
                     <label className="text-[12px] font-medium text-muted-foreground mb-1 block">Call Time</label>
@@ -163,9 +207,11 @@ const Onboarding = () => {
                         type="time"
                         value={callTime}
                         onChange={e => setCallTime(e.target.value)}
+                        onBlur={() => validatePatientFields()}
                         className="w-full pl-8 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
+                    {errors.callTime && <p className="text-[11px] text-destructive mt-1">{errors.callTime}</p>}
                   </div>
                 </div>
               </div>
@@ -240,6 +286,7 @@ const Onboarding = () => {
           <button
             onClick={() => {
               if (currentStep < 2) {
+                if (!validatePatientFields()) return;
                 setCurrentStep((prev) => prev + 1);
               } else {
                 handleComplete();

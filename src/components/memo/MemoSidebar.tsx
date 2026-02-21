@@ -14,17 +14,17 @@ export function MemoSidebar() {
 
   return (
     <aside className="flex flex-col w-52 min-h-screen bg-sidebar border-r border-sidebar-border px-3 py-5">
-      <div className="flex items-center gap-2 mb-8 px-2">
+      <div className="flex items-center gap-2.5 mb-8 px-2">
         <span className="text-base font-display text-foreground tracking-tight">memo</span>
         {isLive && (
-          <span className="relative flex h-2 w-2">
+          <span className="relative flex h-1.5 w-1.5">
             <span className="animate-pulse-live absolute inline-flex h-full w-full rounded-full bg-memo-green opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-memo-green" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-memo-green" />
           </span>
         )}
       </div>
 
-      <nav className="flex flex-col gap-px flex-1">
+      <nav className="flex flex-col gap-0.5 flex-1">
         {navItems.map((item) => (
           <NavLink
             key={item.url}
@@ -38,7 +38,7 @@ export function MemoSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border pt-2 mt-2">
+      <div className="border-t border-sidebar-border pt-3 mt-2">
         <NavLink
           to="/onboarding"
           className="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-medium text-muted-foreground hover:bg-sidebar-accent transition-colors"

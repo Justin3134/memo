@@ -105,7 +105,7 @@ const HealthSignals = () => {
   return (
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
-        <h1 className="text-lg font-display text-foreground mb-4">Health Signals</h1>
+        <h1 className="text-lg font-display text-foreground tracking-tight mb-4">Health Signals</h1>
 
         {/* 30-Day Timeline */}
         <div className="border border-border rounded-lg p-3 mb-4 bg-card">

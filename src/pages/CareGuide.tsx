@@ -26,10 +26,10 @@ const CareGuide = () => {
   return (
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
-        <p className="text-xs text-muted-foreground mb-1">Guidance</p>
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-xl font-display text-foreground">Care Guide</h1>
-          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">powered by MiniMax</span>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Guidance</p>
+        <div className="flex items-center gap-2.5 mb-1">
+          <h1 className="text-xl font-display text-foreground tracking-tight">Care Guide</h1>
+          <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider bg-muted px-1.5 py-0.5 rounded">powered by MiniMax</span>
         </div>
         <p className="text-[13px] text-muted-foreground mb-6">Personalized guidance based on Margaret's recent patterns</p>
 

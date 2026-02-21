@@ -6,57 +6,57 @@
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 215 25% 15%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 8%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 25% 15%;
+    --card-foreground: 0 0% 8%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 25% 15%;
+    --popover-foreground: 0 0% 8%;
 
-    --primary: 199 55% 36%;
+    --primary: 0 0% 8%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 18% 94%;
-    --secondary-foreground: 215 20% 30%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 20%;
 
-    --muted: 210 14% 93%;
-    --muted-foreground: 215 12% 50%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 45%;
 
-    --accent: 168 40% 40%;
-    --accent-foreground: 168 40% 10%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 8%;
 
-    --destructive: 4 60% 50%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 210 16% 90%;
-    --input: 210 16% 90%;
-    --ring: 199 55% 36%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 8%;
 
-    --radius: 0.625rem;
+    --radius: 0.5rem;
 
     /* Memo tokens */
-    --memo-teal: 199 55% 36%;
-    --memo-teal-light: 199 30% 94%;
-    --memo-teal-dark: 199 55% 25%;
-    --memo-slate: 210 20% 98%;
-    --memo-warm: 30 20% 96%;
-    --memo-amber: 38 75% 52%;
-    --memo-amber-light: 38 50% 93%;
-    --memo-red: 4 60% 50%;
-    --memo-red-light: 4 40% 95%;
-    --memo-green: 168 40% 40%;
-    --memo-green-light: 168 30% 93%;
+    --memo-teal: 0 0% 8%;
+    --memo-teal-light: 0 0% 96%;
+    --memo-teal-dark: 0 0% 4%;
+    --memo-slate: 0 0% 98%;
+    --memo-warm: 0 0% 97%;
+    --memo-amber: 38 92% 50%;
+    --memo-amber-light: 38 50% 95%;
+    --memo-red: 0 72% 51%;
+    --memo-red-light: 0 50% 96%;
+    --memo-green: 142 71% 45%;
+    --memo-green-light: 142 40% 95%;
 
-    --sidebar-background: 215 20% 97%;
-    --sidebar-foreground: 215 20% 30%;
-    --sidebar-primary: 199 55% 36%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 20%;
+    --sidebar-primary: 0 0% 8%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 199 20% 93%;
-    --sidebar-accent-foreground: 215 25% 15%;
-    --sidebar-border: 210 16% 90%;
-    --sidebar-ring: 199 55% 36%;
+    --sidebar-accent: 0 0% 94%;
+    --sidebar-accent-foreground: 0 0% 8%;
+    --sidebar-border: 0 0% 91%;
+    --sidebar-ring: 0 0% 8%;
 
     --font-display: 'DM Serif Display', serif;
     --font-body: 'DM Sans', sans-serif;
@@ -81,7 +81,6 @@
   }
 }
 
-/* Stability gauge animation */
 @keyframes gauge-fill {
   from { stroke-dashoffset: 283; }
 }
@@ -108,7 +107,6 @@
   animation: fade-in-up 0.4s ease-out forwards;
 }
 
-/* Custom scrollbar */
 .memo-scrollbar::-webkit-scrollbar {
   width: 4px;
 }

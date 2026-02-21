@@ -45,8 +45,8 @@ const FindCare = () => {
   return (
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
-        <p className="text-xs text-muted-foreground mb-1">Care Network</p>
-        <h1 className="text-xl font-display text-foreground mb-5">Find Care</h1>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Care Network</p>
+        <h1 className="text-xl font-display text-foreground tracking-tight mb-5">Find Care</h1>
 
         {/* Search */}
         <div className="relative mb-4">
@@ -56,7 +56,7 @@ const FindCare = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search medications, specialists, or conditions..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-input bg-background text-foreground text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground"
           />
         </div>
         <div className="flex flex-wrap gap-1.5 mb-6">

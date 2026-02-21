@@ -1,10 +1,17 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Phone, ChevronRight, Upload, Clock, Check, X, CheckCircle2 } from "lucide-react";
+import { ChevronRight, Check, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const steps = ["Patient", "Voice", "Family"];
+
+const voiceModels = [
+  { id: "aria", name: "Aria", desc: "Warm, conversational female" },
+  { id: "roger", name: "Roger", desc: "Calm, reassuring male" },
+  { id: "sarah", name: "Sarah", desc: "Gentle, friendly female" },
+  { id: "charlie", name: "Charlie", desc: "Soft-spoken, patient male" },
+];
 
 const Landing = () => {
   const navigate = useNavigate();
@@ -13,7 +20,7 @@ const Landing = () => {
   const [elderName, setElderName] = useState("");
   const [elderPhone, setElderPhone] = useState("");
   const [callTime, setCallTime] = useState("10:00");
-  const [fileName, setFileName] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState("aria");
   const [familyMembers, setFamilyMembers] = useState([{ name: "", phone: "", relationship: "" }]);
 
   const addFamilyMember = () => setFamilyMembers(prev => [...prev, { name: "", phone: "", relationship: "" }]);
@@ -138,21 +145,20 @@ const Landing = () => {
 
                   {currentStep === 1 && (
                     <div className="space-y-3">
-                      <p className="text-[13px] text-muted-foreground">Upload a voice sample to personalize call tone. Optional.</p>
-                      <div
-                        className="border border-dashed border-border rounded-lg p-8 text-center hover:border-foreground/30 transition-colors cursor-pointer"
-                        onDragOver={e => e.preventDefault()}
-                        onDrop={e => { e.preventDefault(); setFileName(e.dataTransfer.files?.[0]?.name || ""); }}
-                      >
-                        <Upload className="w-5 h-5 text-muted-foreground mx-auto mb-1.5" />
-                        {fileName ? (
-                          <p className="text-[13px] font-medium text-foreground">{fileName}</p>
-                        ) : (
-                          <>
-                            <p className="text-[13px] font-medium text-foreground">Drop .mp3 here</p>
-                            <p className="text-[11px] text-muted-foreground mt-0.5">or click to browse</p>
-                          </>
-                        )}
+                      <p className="text-[13px] text-muted-foreground">Choose the voice Memo will use when calling.</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {voiceModels.map((v) => (
+                          <button
+                            key={v.id}
+                            onClick={() => setSelectedVoice(v.id)}
+                            className={`text-left border rounded-md p-3 transition-colors ${
+                              selectedVoice === v.id ? "border-foreground bg-foreground/5" : "border-border hover:border-foreground/30"
+                            }`}
+                          >
+                            <p className="text-[12px] font-medium text-foreground">{v.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{v.desc}</p>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}

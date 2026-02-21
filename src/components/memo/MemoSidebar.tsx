@@ -1,20 +1,19 @@
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
-import { LayoutDashboard, Layers, AlertTriangle, UserPlus } from "lucide-react";
+import { LayoutDashboard, Activity, BookOpen, MapPin, Settings, UserPlus } from "lucide-react";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Calls", url: "/memory-cards", icon: Layers },
-  { title: "Signals", url: "/alerts", icon: AlertTriangle },
+  { title: "Health Signals", url: "/health-signals", icon: Activity },
+  { title: "Care Guide", url: "/care-guide", icon: BookOpen },
+  { title: "Find Care", url: "/find-care", icon: MapPin },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function MemoSidebar() {
-  const location = useLocation();
   const isLive = true;
 
   return (
     <aside className="flex flex-col w-52 min-h-screen bg-sidebar border-r border-sidebar-border px-3 py-5">
-      {/* Brand */}
       <div className="flex items-center gap-2 mb-8 px-2">
         <span className="text-base font-display text-foreground tracking-tight">memo</span>
         {isLive && (
@@ -25,7 +24,6 @@ export function MemoSidebar() {
         )}
       </div>
 
-      {/* Nav */}
       <nav className="flex flex-col gap-px flex-1">
         {navItems.map((item) => (
           <NavLink
@@ -40,7 +38,6 @@ export function MemoSidebar() {
         ))}
       </nav>
 
-      {/* Bottom */}
       <div className="border-t border-sidebar-border pt-2 mt-2">
         <NavLink
           to="/onboarding"

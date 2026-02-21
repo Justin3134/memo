@@ -37,3 +37,13 @@ export const getRecent = query({
       .take(args.limit);
   },
 });
+
+export const getAllForPatient = query({
+  args: { patientId: v.id("patients") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("memories")
+      .withIndex("by_patient", (q) => q.eq("patientId", args.patientId))
+      .collect();
+  },
+});

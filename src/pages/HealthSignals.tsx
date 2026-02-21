@@ -1,90 +1,46 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
-import { useState } from "react";
-import { Check, ChevronDown, ChevronRight, Pill, MapPin, ExternalLink } from "lucide-react";
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine } from "recharts";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Check } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { Link } from "react-router-dom";
+import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
-const days = Array.from({ length: 30 }, (_, i) => {
-  const d = new Date();
-  d.setDate(d.getDate() - (29 - i));
-  const score = Math.round(75 + Math.sin(i * 0.3) * 10 + (Math.random() - 0.5) * 8);
-  return {
-    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    score: Math.max(40, Math.min(100, score)),
-    status: score < 55 ? "alert" : score < 70 ? "watch" : "ok",
-  };
-});
+type Severity = "High" | "Medium" | "Low";
 
-const activeFlags = [
-  {
-    id: 1,
-    signal: "Pause Frequency",
-    description: "Pauses between words are longer and more frequent than baseline, which may indicate fatigue or early neurological change.",
-    today: "4.2/min",
-    baseline: "3.1/min",
-    severity: "High" as const,
-    action: "Consider discussing with physician if trend continues for 3 more days.",
-    sparkline: [30, 32, 31, 33, 35, 40, 42],
-    recommendations: {
-      specialists: [
-        { name: "Dr. Sarah Chen", specialty: "Neurologist", reason: "Elevated pause frequency may indicate early Parkinson's motor markers" },
-        { name: "Dr. Robert Kim", specialty: "Speech Pathologist", reason: "Speech pattern analysis and intervention" },
-      ],
-      medications: [
-        { name: "Levodopa/Carbidopa", class: "Dopamine Precursor", note: "If Parkinson's is confirmed by neurologist" },
-        { name: "Amantadine", class: "NMDA Antagonist", note: "May help with speech motor function" },
-      ],
-    },
-  },
-  {
-    id: 2,
-    signal: "Word-Finding Difficulty",
-    description: "Increased use of filler words and mid-sentence pauses consistent with word retrieval difficulty.",
-    today: "Score 62",
-    baseline: "Score 78",
-    severity: "Medium" as const,
-    action: "Watch for 3 more days. Compare with next cognitive assessment.",
-    sparkline: [78, 76, 74, 72, 68, 65, 62],
-    recommendations: {
-      specialists: [
-        { name: "Dr. James Ortiz", specialty: "Geriatrician", reason: "Routine cognitive screening recommended given declining word-finding score" },
-      ],
-      medications: [
-        { name: "Donepezil (Aricept)", class: "Cholinesterase Inhibitor", note: "May improve cognitive function if mild Alzheimer's is suspected" },
-        { name: "Memantine (Namenda)", class: "NMDA Receptor Antagonist", note: "For moderate cognitive decline symptoms" },
-      ],
-    },
-  },
-];
+type Flag = {
+  id: string;
+  signal: string;
+  description: string;
+  today: string;
+  baseline: string;
+  severity: Severity;
+  action: string;
+  sparkline: number[];
+};
 
-const signalSections = [
-  {
-    title: "Speech Rate",
-    data: Array.from({ length: 30 }, (_, i) => ({ day: i + 1, value: Math.round(134 + Math.sin(i * 0.3) * 8 + (Math.random() - 0.5) * 6) })),
-    interpretation: "Speech rate within normal range (125–145 wpm). A sustained drop below 120 wpm warrants evaluation.",
-  },
-  {
-    title: "Pause Frequency",
-    data: Array.from({ length: 30 }, (_, i) => ({ day: i + 1, value: +(3.0 + Math.sin(i * 0.2) * 0.8 + (i > 24 ? 1.0 : 0) + (Math.random() - 0.5) * 0.4).toFixed(1) })),
-    interpretation: "Spike in past 5 days from 3.1/min to 4.2/min. May correlate with fatigue, medication, or neurological shift.",
-  },
-  {
-    title: "Word-Finding",
-    data: Array.from({ length: 30 }, (_, i) => ({ day: i + 1, value: Math.round(80 - i * 0.4 + (Math.random() - 0.5) * 6) })),
-    interpretation: "Gradual decline over past month. Recommend formal cognitive screening within 2 weeks.",
-  },
-  {
-    title: "Emotional Tone",
-    data: Array.from({ length: 30 }, (_, i) => ({ day: i + 1, value: Math.round(82 + Math.sin(i * 0.15) * 5 + (Math.random() - 0.5) * 4) })),
-    interpretation: "Stable and positive. No depression or withdrawal markers detected.",
-  },
-];
+type TimelineItem = {
+  id: number;
+  date: string;
+  score: number;
+  status: "alert" | "watch" | "ok";
+};
+
+type SignalSection = {
+  title: string;
+  data: { day: number; value: number }[];
+  interpretation: string;
+};
 
 const Sparkline = ({ data, color }: { data: number[]; color: string }) => {
+  if (data.length === 0) {
+    return <span className="text-[9px] text-muted-foreground">No trend yet</span>;
+  }
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
-  const w = 80, h = 20;
+  const w = 80,
+    h = 20;
   const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
   return (
     <svg width={w} height={h}>
@@ -94,25 +50,123 @@ const Sparkline = ({ data, color }: { data: number[]; color: string }) => {
 };
 
 const HealthSignals = () => {
-  const [reviewedIds, setReviewedIds] = useState<number[]>([]);
+  const { loading, error, patient, calls, alerts, memories } = useMemoDashboardData();
+
+  const [reviewedIds, setReviewedIds] = useState<string[]>([]);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
-  const toggleReview = (id: number) => {
-    setReviewedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const days: TimelineItem[] = useMemo(() => {
+    return [...calls]
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .slice(-30)
+      .map((call, index) => ({
+        id: index,
+        date: new Date(call.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        score: Math.max(40, Math.min(100, Math.round(call.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70))),
+        status: Math.max(40, Math.min(100, Math.round(call.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70))) < 55 ? "alert" : Math.max(40, Math.min(100, Math.round(call.cognitiveScore ?? 70))) < 70 ? "watch" : "ok",
+      }));
+  }, [calls, patient?.baseline]);
+
+  const activeFlags: Flag[] = useMemo(
+    () =>
+      alerts.map((alert) => ({
+        id: alert._id,
+        signal: alert.signalType,
+        description: alert.description,
+        today: `${alert.currentValue}`,
+        baseline: `${alert.baselineValue}`,
+        severity: (alert.severity as Severity) || "Medium",
+        action: alert.recommendedAction || "Continue monitoring and share this with your doctor.",
+        sparkline: calls
+          .slice(-7)
+          .map((call) => call.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70),
+      })),
+    [alerts, calls, patient?.baseline],
+  );
+
+  const signalSections: SignalSection[] = useMemo(
+    () => [
+      {
+        title: "Speech Rate",
+        data: calls.slice(-30).length
+          ? calls.slice(-30).map((call, idx) => ({ day: idx + 1, value: Math.round(call.speechRate ?? 130) }))
+          : [{ day: 1, value: 130 }],
+        interpretation: "Speech rate trend from recent call recordings.",
+      },
+      {
+        title: "Pause Frequency",
+        data: calls.slice(-30).length
+          ? calls.slice(-30).map((call, idx) => ({ day: idx + 1, value: Number((call.pauseFrequency ?? 3.1).toFixed(1) }))
+          : [{ day: 1, value: 3.1 }],
+        interpretation: "Pause frequency trend from recent transcripts.",
+      },
+      {
+        title: "Response Latency",
+        data: calls.slice(-30).length
+          ? calls.slice(-30).map((call, idx) => ({ day: idx + 1, value: Math.round(call.responseLatency ?? 1.7) * 10 }))
+          : [{ day: 1, value: 17 }],
+        interpretation: "Higher latency can indicate fatigue or response planning difficulty.",
+      },
+      {
+        title: "Emotional Tone",
+        data: calls.slice(-30).length
+          ? calls.slice(-30).map((call, idx) => ({ day: idx + 1, value: Math.round(call.emotionalScore ?? 80) }))
+          : [{ day: 1, value: 80 }],
+        interpretation: "Emotional tone is inferred from call sentiment and vocal stability.",
+      },
+    ],
+    [calls],
+  );
+
+  const toggleReview = (id: string) => {
+    setReviewedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
+
+  if (loading) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-muted-foreground">Loading health signals from real call data...</p>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up">
+          <p className="text-sm text-memo-red">Unable to load health signals: {error}</p>
+        </div>
+      </MemoLayout>
+    );
+  }
+
+  if (!patient) {
+    return (
+      <MemoLayout>
+        <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
+          <p className="text-sm text-muted-foreground">No patient found for this family yet.</p>
+          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
+            Register a patient
+          </Link>
+        </div>
+      </MemoLayout>
+    );
+  }
 
   return (
     <MemoLayout>
       <div className="max-w-4xl mx-auto animate-fade-in-up">
         <h1 className="text-lg font-display text-foreground tracking-tight mb-4">Health Signals</h1>
+        <p className="text-[11px] text-muted-foreground mb-4">Live signals for {patient.name} are now derived from your latest Convex call records.</p>
 
-        {/* 30-Day Timeline */}
         <div className="border border-border rounded-lg p-3 mb-4 bg-card">
           <div className="flex gap-[2px]">
             {days.map((day, i) => (
               <button
-                key={i}
+                key={`${day.date}-${i}`}
                 onClick={() => setSelectedDay(selectedDay === i ? null : i)}
                 className={`flex-1 h-5 rounded-sm transition-colors ${
                   day.status === "alert" ? "bg-memo-red" : day.status === "watch" ? "bg-memo-amber" : "bg-foreground/10"
@@ -122,20 +176,20 @@ const HealthSignals = () => {
             ))}
           </div>
           <div className="flex justify-between mt-1 text-[9px] text-muted-foreground">
-            <span>{days[0].date}</span>
+            <span>{days[0]?.date}</span>
             <span>Today</span>
           </div>
-          {selectedDay !== null && (
+          {selectedDay !== null && days[selectedDay] ? (
             <p className="mt-2 text-[11px] text-muted-foreground">
               <span className="font-medium text-foreground">{days[selectedDay].date}</span> — Score {days[selectedDay].score}/100.
               {days[selectedDay].status === "alert" && " Significant deviations."}
               {days[selectedDay].status === "watch" && " Minor deviations."}
               {days[selectedDay].status === "ok" && " All signals within baseline."}
             </p>
-          )}
+          ) : null}
+          <p className="mt-2 text-[11px] text-muted-foreground">Memories saved: {memories.length}</p>
         </div>
 
-        {/* Active Flags */}
         <div className="space-y-3 mb-5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Active Flags</p>
           {activeFlags.map((flag) => {
@@ -146,15 +200,27 @@ const HealthSignals = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
-                          flag.severity === "High" ? "bg-memo-red-light text-memo-red" : "bg-memo-amber-light text-memo-amber"
-                        }`}>{flag.severity}</span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
+                            flag.severity === "High"
+                              ? "bg-memo-red-light text-memo-red"
+                              : flag.severity === "Medium"
+                                ? "bg-memo-amber-light text-memo-amber"
+                                : "bg-memo-green/20 text-memo-green"
+                          }`}
+                        >
+                          {flag.severity}
+                        </span>
                         <span className="text-[13px] font-medium text-foreground">{flag.signal}</span>
                       </div>
                       <p className="text-[11px] text-muted-foreground leading-relaxed mb-1.5">{flag.description}</p>
                       <div className="flex items-center gap-3 mb-1.5">
-                        <span className="text-[10px] text-muted-foreground">Today: <span className="font-medium text-foreground">{flag.today}</span></span>
-                        <span className="text-[10px] text-muted-foreground">Baseline: <span className="font-medium text-foreground">{flag.baseline}</span></span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Today: <span className="font-medium text-foreground">{flag.today}</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Baseline: <span className="font-medium text-foreground">{flag.baseline}</span>
+                        </span>
                         <Sparkline data={flag.sparkline} color={flag.severity === "High" ? "hsl(0, 72%, 51%)" : "hsl(38, 92%, 50%)"} />
                       </div>
                       <p className="text-[10px] text-muted-foreground">{flag.action}</p>
@@ -170,7 +236,6 @@ const HealthSignals = () => {
                   </div>
                 </div>
 
-                {/* Expanded recommendations */}
                 <AnimatePresence>
                   {reviewed && (
                     <motion.div
@@ -181,39 +246,9 @@ const HealthSignals = () => {
                       className="overflow-hidden"
                     >
                       <div className="border-t border-border px-3.5 py-3 bg-muted/30">
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* Specialists */}
-                          <div>
-                            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                              <MapPin className="w-3 h-3" /> Related Specialists
-                            </p>
-                            <div className="space-y-1.5">
-                              {flag.recommendations.specialists.map((s, i) => (
-                                <div key={i} className="bg-card border border-border rounded p-2">
-                                  <p className="text-[12px] font-medium text-foreground">{s.name}</p>
-                                  <p className="text-[10px] text-muted-foreground">{s.specialty}</p>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5">{s.reason}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Medications */}
-                          <div>
-                            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
-                              <Pill className="w-3 h-3" /> Related Medications
-                            </p>
-                            <div className="space-y-1.5">
-                              {flag.recommendations.medications.map((m, i) => (
-                                <div key={i} className="bg-card border border-border rounded p-2">
-                                  <p className="text-[12px] font-medium text-foreground">{m.name}</p>
-                                  <p className="text-[10px] text-muted-foreground">{m.class}</p>
-                                  <p className="text-[10px] text-memo-amber mt-0.5">{m.note}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-[9px] text-muted-foreground mt-2">Always consult with a physician before starting any medication.</p>
+                        <p className="text-[11px] flex items-center gap-1 text-muted-foreground">
+                          <Check className="w-3.5 h-3.5" /> {flag.signal}
+                        </p>
                       </div>
                     </motion.div>
                   )}
@@ -223,7 +258,6 @@ const HealthSignals = () => {
           })}
         </div>
 
-        {/* Signal Breakdown */}
         <div className="space-y-1.5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Signal Breakdown</p>
           {signalSections.map((section) => {

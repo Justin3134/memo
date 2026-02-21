@@ -3,6 +3,63 @@ import { v } from "convex/values";
 
 const sanitizePhone = (phoneNumber: string) => phoneNumber.replace(/[^\d+]/g, "");
 
+export const create = mutation({
+  args: {
+    name: v.string(),
+    phoneNumber: v.string(),
+    familyUserId: v.string(),
+    memoTime: v.string(),
+    timezone: v.string(),
+    interests: v.optional(v.array(v.string())),
+    knownPeople: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          relationship: v.string(),
+        })
+      )
+    ),
+    healthContext: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
+    emergencyContact: v.optional(v.string()),
+    consentGiven: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const normalizedPhone = sanitizePhone(args.phoneNumber);
+
+    const existing = await ctx.db
+      .query("patients")
+      .withIndex("by_phone", (q) => q.eq("phoneNumber", normalizedPhone))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.name,
+        memoTime: args.memoTime,
+        timezone: args.timezone,
+        consentGiven: args.consentGiven ?? existing.consentGiven,
+        knownPeople: args.knownPeople ?? existing.knownPeople,
+        interests: args.interests ?? existing.interests,
+        emergencyContact: args.emergencyContact ?? existing.emergencyContact,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("patients", {
+      name: args.name,
+      phoneNumber: normalizedPhone,
+      familyUserId: args.familyUserId,
+      memoTime: args.memoTime,
+      timezone: args.timezone,
+      consentGiven: args.consentGiven ?? true,
+      interests: args.interests,
+      knownPeople: args.knownPeople,
+      healthContext: args.healthContext,
+      voiceId: args.voiceId,
+      emergencyContact: args.emergencyContact,
+    });
+  },
+});
+
 export const getById = query({
   args: { patientId: v.id("patients") },
   handler: async (ctx, args) => {
@@ -11,6 +68,24 @@ export const getById = query({
       throw new Error("Patient not found");
     }
     return patient;
+  },
+});
+
+export const listForFamily = query({
+  args: { familyUserId: v.string() },
+  handler: async (ctx, args) => {
+    const patients = await ctx.db
+      .query("patients")
+      .withIndex("by_family_user", (q) => q.eq("familyUserId", args.familyUserId))
+      .collect();
+
+    return patients.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+export const getAll = query({
+  handler: async (ctx) => {
+    return await ctx.db.query("patients").collect();
   },
 });
 

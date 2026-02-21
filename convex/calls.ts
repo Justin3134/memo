@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const updateAfterAnalysis = mutation({
@@ -109,5 +109,31 @@ export const createInitialCall = mutation({
 
     await ctx.db.patch(args.patientId, { lastCalledAt: args.startedAt });
     return id;
+  },
+});
+
+export const listForPatient = query({
+  args: {
+    patientId: v.id("patients"),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit, 120));
+    return await ctx.db
+      .query("calls")
+      .withIndex("by_patient", (q) => q.eq("patientId", args.patientId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const getLatestForPatient = query({
+  args: { patientId: v.id("patients") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("calls")
+      .withIndex("by_patient", (q) => q.eq("patientId", args.patientId))
+      .order("desc")
+      .first();
   },
 });

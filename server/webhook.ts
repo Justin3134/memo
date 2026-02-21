@@ -11,7 +11,19 @@ app.post("/vapi-webhook", async (req, res) => {
   try {
     const event = req.body;
     if (event.message?.type === "end-of-call-report") {
-      const { call, transcript = "", duration = 0 } = event.message;
+      const { call, duration = 0 } = event.message;
+      const transcriptSource = event.message.transcript;
+      const rawTranscript =
+        typeof transcriptSource === "string"
+          ? transcriptSource
+          : Array.isArray(transcriptSource)
+            ? transcriptSource
+                .map((line: any) => line?.text || line?.transcript || "")
+                .filter(Boolean)
+                .join(" ")
+            : typeof event.call?.transcript === "string"
+              ? event.call.transcript
+              : "";
 
       const patientId = call.metadata?.patientId;
       const callId = call.id;
@@ -27,7 +39,7 @@ app.post("/vapi-webhook", async (req, res) => {
       runPostCallPipeline(
         patientId,
         callId,
-        typeof transcript === "string" ? transcript : JSON.stringify(transcript),
+        rawTranscript || JSON.stringify(event.message?.analysis ?? event.message ?? {}),
         Number(duration ?? 0)
       ).catch((error) => {
         console.error("Pipeline error:", error);

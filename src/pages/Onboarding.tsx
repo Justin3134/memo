@@ -2,12 +2,14 @@ import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { User, Upload, Users, Check, ChevronRight, Phone, Clock, X, CheckCircle2 } from "lucide-react";
+import { upsertPatientFromOnboarding } from "@/lib/memoBackend";
 
 const steps = ["Patient", "Voice", "Family"];
 
 const Onboarding = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [completed, setCompleted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [elderName, setElderName] = useState("");
   const [elderPhone, setElderPhone] = useState("");
   const [callTime, setCallTime] = useState("10:00");
@@ -26,8 +28,20 @@ const Onboarding = () => {
     setFamilyMembers(prev => prev.map((m, i) => i === index ? { ...m, [field]: value } : m));
   };
 
-  const handleComplete = () => {
-    setCompleted(true);
+  const handleComplete = async () => {
+    setIsSubmitting(true);
+    try {
+      await upsertPatientFromOnboarding({
+        name: elderName || "New Patient",
+        phone: elderPhone,
+        callTime,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago",
+        familyMembers,
+      });
+      setCompleted(true);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (completed) {
@@ -224,10 +238,17 @@ const Onboarding = () => {
             Back
           </button>
           <button
-            onClick={() => currentStep < 2 ? setCurrentStep(prev => prev + 1) : handleComplete()}
-            className="flex items-center gap-1 px-4 py-1.5 bg-primary text-primary-foreground text-[13px] font-medium rounded-md hover:opacity-90 transition-opacity"
+            onClick={() => {
+              if (currentStep < 2) {
+                setCurrentStep((prev) => prev + 1);
+              } else {
+                handleComplete();
+              }
+            }}
+            disabled={isSubmitting}
+            className="flex items-center gap-1 px-4 py-1.5 bg-primary text-primary-foreground text-[13px] font-medium rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {currentStep === 2 ? "Register Patient" : "Continue"}
+            {isSubmitting ? "Saving..." : currentStep === 2 ? "Register Patient" : "Continue"}
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>

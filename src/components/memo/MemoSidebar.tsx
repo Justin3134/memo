@@ -1,6 +1,6 @@
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
-import { LayoutDashboard, Layers, AlertTriangle, Settings, Phone } from "lucide-react";
+import { LayoutDashboard, Layers, AlertTriangle, Settings } from "lucide-react";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -11,48 +11,45 @@ const navItems = [
 
 export function MemoSidebar() {
   const location = useLocation();
-  const isLive = true; // placeholder
+  const isLive = true;
 
   return (
-    <aside className="flex flex-col w-64 min-h-screen bg-sidebar border-r border-sidebar-border p-6">
+    <aside className="flex flex-col w-60 min-h-screen bg-sidebar border-r border-sidebar-border px-4 py-6">
       {/* Logo */}
-      <div className="flex items-center gap-3 mb-10">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
-          <Phone className="w-5 h-5 text-primary-foreground" />
-        </div>
-        <span className="text-xl font-display font-semibold text-foreground">Memo</span>
+      <div className="flex items-center gap-2.5 mb-10 px-3">
+        <span className="text-lg font-display text-foreground">Memo</span>
         {isLive && (
-          <span className="ml-auto relative flex h-3 w-3">
-            <span className="animate-pulse-live absolute inline-flex h-full w-full rounded-full bg-memo-sage opacity-75" />
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-memo-sage" />
+          <span className="ml-auto relative flex h-2.5 w-2.5">
+            <span className="animate-pulse-live absolute inline-flex h-full w-full rounded-full bg-memo-green opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-memo-green" />
           </span>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex flex-col gap-1 flex-1">
+      <nav className="flex flex-col gap-0.5 flex-1">
         {navItems.map((item) => (
           <NavLink
             key={item.url}
             to={item.url}
             end={item.url === "/"}
-            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
           >
-            <item.icon className="w-5 h-5" />
+            <item.icon className="w-4 h-4" />
             <span>{item.title}</span>
           </NavLink>
         ))}
       </nav>
 
       {/* Bottom section */}
-      <div className="border-t border-sidebar-border pt-4 mt-4">
+      <div className="border-t border-sidebar-border pt-3 mt-3">
         <NavLink
           to="/onboarding"
-          className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-muted-foreground hover:bg-sidebar-accent transition-colors"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-sidebar-accent transition-colors"
           activeClassName="bg-sidebar-accent text-sidebar-primary font-semibold"
         >
-          <Settings className="w-5 h-5" />
+          <Settings className="w-4 h-4" />
           <span>Setup</span>
         </NavLink>
       </div>

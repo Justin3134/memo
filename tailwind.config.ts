@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        display: ["'Playfair Display'", "serif"],
-        body: ["'Inter'", "sans-serif"],
+        display: ["'DM Serif Display'", "serif"],
+        body: ["'DM Sans'", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -62,17 +62,17 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
         },
         memo: {
-          sage: "hsl(var(--memo-sage))",
-          "sage-light": "hsl(var(--memo-sage-light))",
-          "sage-dark": "hsl(var(--memo-sage-dark))",
-          cream: "hsl(var(--memo-cream))",
+          teal: "hsl(var(--memo-teal))",
+          "teal-light": "hsl(var(--memo-teal-light))",
+          "teal-dark": "hsl(var(--memo-teal-dark))",
+          slate: "hsl(var(--memo-slate))",
           warm: "hsl(var(--memo-warm))",
           amber: "hsl(var(--memo-amber))",
           "amber-light": "hsl(var(--memo-amber-light))",
           red: "hsl(var(--memo-red))",
           "red-light": "hsl(var(--memo-red-light))",
-          earth: "hsl(var(--memo-earth))",
-          "earth-light": "hsl(var(--memo-earth-light))",
+          green: "hsl(var(--memo-green))",
+          "green-light": "hsl(var(--memo-green-light))",
         },
       },
       borderRadius: {

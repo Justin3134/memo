@@ -2,12 +2,10 @@ import { Phone, Clock } from "lucide-react";
 
 export function TodaysCallCard() {
   return (
-    <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+    <div className="bg-card rounded-lg border border-border p-6">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-memo-sage-light flex items-center justify-center">
-          <Phone className="w-4 h-4 text-primary" />
-        </div>
-        <h3 className="text-lg font-display font-semibold text-foreground">Today's Call</h3>
+        <Phone className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wide">Today's Call</h3>
       </div>
 
       <div className="flex items-center gap-4 mb-4 text-sm text-muted-foreground">
@@ -19,11 +17,10 @@ export function TodaysCallCard() {
         <span>12 min 34 sec</span>
       </div>
 
-      <div className="bg-secondary/50 rounded-lg p-4">
-        <p className="text-sm font-medium text-secondary-foreground mb-1">Summary</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          Margaret talked about her morning walk to the park. She mentioned feeling a bit tired after gardening yesterday. 
-          She asked about her grandson Tommy's school play and seemed in good spirits overall.
+      <div className="bg-secondary rounded-md p-4">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Summary</p>
+        <p className="text-sm text-foreground leading-relaxed">
+          Margaret discussed her morning walk and mentioned fatigue after gardening. She asked about her grandson's school play and appeared engaged throughout the conversation. Speech patterns consistent with baseline.
         </p>
       </div>
     </div>

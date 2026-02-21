@@ -3,7 +3,7 @@ interface StabilityGaugeProps {
 }
 
 export function StabilityGauge({ score }: StabilityGaugeProps) {
-  const radius = 45;
+  const radius = 42;
   const circumference = 2 * Math.PI * radius;
   const progress = (score / 100) * circumference;
   const offset = circumference - progress;
@@ -22,22 +22,13 @@ export function StabilityGauge({ score }: StabilityGaugeProps) {
 
   return (
     <div className="relative inline-flex items-center justify-center">
-      <svg width="120" height="120" viewBox="0 0 120 120" className="-rotate-90">
+      <svg width="100" height="100" viewBox="0 0 100 100" className="-rotate-90">
+        <circle cx="50" cy="50" r={radius} fill="none" stroke="hsl(var(--border))" strokeWidth="6" />
         <circle
-          cx="60"
-          cy="60"
-          r={radius}
-          fill="none"
-          stroke="hsl(var(--border))"
-          strokeWidth="8"
-        />
-        <circle
-          cx="60"
-          cy="60"
-          r={radius}
+          cx="50" cy="50" r={radius}
           fill="none"
           stroke={getStrokeColor()}
-          strokeWidth="8"
+          strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
@@ -46,8 +37,8 @@ export function StabilityGauge({ score }: StabilityGaugeProps) {
         />
       </svg>
       <div className="absolute flex flex-col items-center">
-        <span className={`text-2xl font-bold ${getColor()}`}>{score}</span>
-        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Stability</span>
+        <span className={`text-xl font-bold ${getColor()}`}>{score}</span>
+        <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-wider">Index</span>
       </div>
     </div>
   );

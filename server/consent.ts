@@ -10,7 +10,7 @@ const client = new (plivo as unknown as {
     authId: string,
     authToken: string
   ) => { messages: { create: (message: Record<string, string>) => Promise<unknown> } };
-})(process.env.PLIVO_AUTH_ID ?? "", process.env.PLIVO_AUTH_TOKEN ?? "");
+}).Client(process.env.PLIVO_AUTH_ID ?? "", process.env.PLIVO_AUTH_TOKEN ?? "");
 
 const convex = new ConvexHttpClient(process.env.CONVEX_DEPLOYMENT ?? "");
 const app = express();

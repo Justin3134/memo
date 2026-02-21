@@ -10,6 +10,7 @@
     "backend:webhook": "tsx server/webhook.ts",
     "backend:scheduler": "tsx server/scheduler.ts",
     "backend:consent-handler": "tsx server/consent.ts",
+    "dev:stack": "sh -c 'npm run backend:webhook & pid_webhook=$!; npm run backend:consent-handler & pid_consent=$!; npm run backend:scheduler & pid_scheduler=$!; npm run dev; status=$?; kill \"$pid_webhook\" \"$pid_consent\" \"$pid_scheduler\" >/dev/null 2>&1 || true; exit $status'",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -60,7 +61,7 @@
     "next-themes": "^0.3.0",
     "node-cron": "^4.2.1",
     "openai": "^6.22.0",
-    "plivo": "^4.75.7",
+    "plivo": "^4.75.1",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -84,7 +85,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
-    "eslint": "^9.32.0",
+    "eslint": "^10.0.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
@@ -93,8 +94,8 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.38.0",
-    "vite": "^5.4.19",
+    "typescript-eslint": "^7.3.1",
+    "vite": "^7.3.1",
     "vitest": "^3.2.4"
   }
 }

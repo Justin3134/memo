@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { LayoutDashboard, Layers, AlertTriangle, Settings, Phone } from "lucide-react";
 
 const navItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Memory Cards", url: "/memory-cards", icon: Layers },
   { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Settings", url: "/settings", icon: Settings },

@@ -1,13 +1,10 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState } from "react";
-import { User, Clock, Activity, Users, Bell, Mic, Shield, Trash2 } from "lucide-react";
+import { User, Clock, Bell, Mic, Trash2 } from "lucide-react";
 
 const Settings = () => {
   const [callTime, setCallTime] = useState("10:00");
   const [callFreq, setCallFreq] = useState("daily");
-  const [motorSensitivity, setMotorSensitivity] = useState(70);
-  const [cognitiveSensitivity, setCognitiveSensitivity] = useState(60);
-  const [emotionalSensitivity, setEmotionalSensitivity] = useState(80);
 
   return (
     <MemoLayout>
@@ -65,51 +62,8 @@ const Settings = () => {
             <p className="text-[11px] text-muted-foreground mt-3">If Margaret doesn't answer, Memo will retry once after 30 minutes and notify family contacts.</p>
           </section>
 
-          {/* Health Monitoring */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Activity className="w-4 h-4 text-primary" />
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Health Monitoring</p>
-            </div>
-            <p className="text-[11px] text-muted-foreground mb-3">Adjust sensitivity for each signal category. Higher values trigger alerts sooner.</p>
-            <div className="space-y-4">
-              {[
-                { label: "Motor Health", value: motorSensitivity, setter: setMotorSensitivity },
-                { label: "Cognitive Health", value: cognitiveSensitivity, setter: setCognitiveSensitivity },
-                { label: "Emotional Wellness", value: emotionalSensitivity, setter: setEmotionalSensitivity },
-              ].map((s) => (
-                <div key={s.label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[12px] font-medium text-foreground">{s.label}</label>
-                    <span className="text-[11px] text-muted-foreground">{s.value}%</span>
-                  </div>
-                  <input type="range" min={10} max={100} value={s.value} onChange={e => s.setter(Number(e.target.value))} className="w-full h-1.5 bg-secondary rounded-full appearance-none cursor-pointer accent-primary" />
-                </div>
-              ))}
-            </div>
-          </section>
 
-          {/* Care Team */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Users className="w-4 h-4 text-primary" />
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Care Team</p>
-            </div>
-            <div className="space-y-2">
-              {[
-                { name: "Dr. Sarah Chen", specialty: "Neurologist", phone: "(503) 555-0180" },
-                { name: "Dr. James Ortiz", specialty: "Primary Care", phone: "(503) 555-0192" },
-              ].map((doc, i) => (
-                <div key={i} className="flex items-center justify-between border border-border rounded-md p-3">
-                  <div>
-                    <p className="text-[13px] font-medium text-foreground">{doc.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{doc.specialty} · {doc.phone}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button className="text-[12px] text-primary font-medium hover:underline mt-2">+ Add provider</button>
-          </section>
+
 
           {/* Family Notifications */}
           <section className="bg-card rounded-lg border border-border p-5">
@@ -139,23 +93,19 @@ const Settings = () => {
               <Mic className="w-4 h-4 text-primary" />
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Voice Persona</p>
             </div>
-            <p className="text-[11px] text-muted-foreground mb-3">Choose which voice Memo uses during calls with Margaret.</p>
-            <div className="flex gap-2">
-              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-primary text-primary-foreground">Default Voice</button>
-              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-secondary text-muted-foreground hover:text-foreground">Family Clone</button>
+            <p className="text-[11px] text-muted-foreground mb-3">Upload a family member's voice so Memo sounds familiar during calls.</p>
+            <div
+              className="border border-dashed border-border rounded-lg p-6 text-center hover:border-foreground/30 transition-colors cursor-pointer"
+              onClick={() => document.getElementById("voice-upload")?.click()}
+            >
+              <Mic className="w-5 h-5 text-muted-foreground mx-auto mb-1.5" />
+              <p className="text-[13px] font-medium text-foreground">Drop an .mp3 or .wav file here</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">or click to browse</p>
+              <input id="voice-upload" type="file" accept=".mp3,.wav,.m4a" className="hidden" />
             </div>
-          </section>
-
-          {/* Privacy */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Shield className="w-4 h-4 text-primary" />
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Privacy</p>
-            </div>
-            <div className="space-y-2 text-[12px] text-muted-foreground">
-              <p>Call recordings are encrypted and stored for 90 days, then automatically deleted.</p>
-              <p>Voice analysis data is anonymized and never shared with third parties.</p>
-              <p>Health signals and reports are accessible only to authorized family members.</p>
+            <div className="flex gap-2 mt-3">
+              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-foreground text-background">Default Voice</button>
+              <button className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-muted text-muted-foreground">Family Clone</button>
             </div>
           </section>
 

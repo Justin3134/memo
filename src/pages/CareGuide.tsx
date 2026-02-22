@@ -1,6 +1,6 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState } from "react";
-import { Play, AlertTriangle, BookOpen, Sparkles, Clock, RefreshCw } from "lucide-react";
+import { Play, AlertTriangle, BookOpen, Sparkles, Clock, RefreshCw, Loader2, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useQuery } from "convex/react";
@@ -13,6 +13,111 @@ const staticGuides = [
   { title: "Supporting Daily Wellness", subtitle: "How to maintain and improve quality of life through daily routines and engagement." },
 ];
 
+type VideoStatus = "pending" | "generating" | "completed" | "failed";
+
+interface HealthVideo {
+  _id: string;
+  topic: string;
+  status: string;
+  videoUrl?: string;
+  errorMessage?: string;
+  generatedAt: number;
+  triggeredBy: string;
+}
+
+const VideoStatusBadge = ({ status }: { status: string }) => {
+  if (status === "completed") return null;
+  if (status === "generating") {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-memo-amber">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Generating video…
+      </div>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        Queued…
+      </div>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] font-medium text-memo-red">
+        <XCircle className="w-3 h-3" />
+        Generation failed
+      </div>
+    );
+  }
+  return null;
+};
+
+const VideoGeneratingCard = ({ video }: { video: HealthVideo }) => (
+  <div className="bg-card rounded-lg border border-border overflow-hidden mb-6">
+    <div className="aspect-video bg-muted flex flex-col items-center justify-center gap-4 relative">
+      {video.status === "failed" ? (
+        <>
+          <XCircle className="w-10 h-10 text-memo-red/40" />
+          <div className="text-center px-6">
+            <p className="text-[13px] font-medium text-foreground mb-1">Video generation failed</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed max-w-xs">
+              {video.errorMessage?.includes("task_id")
+                ? "MiniMax rejected the request. Check your API key and group ID."
+                : "An error occurred while generating the video. It will retry on the next call."}
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="relative">
+            <div className="w-16 h-16 rounded-full bg-foreground/5 border border-border flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-muted-foreground/50" />
+            </div>
+            <Loader2 className="w-5 h-5 text-foreground/40 animate-spin absolute -bottom-1 -right-1" />
+          </div>
+          <div className="text-center px-6">
+            <p className="text-[13px] font-medium text-foreground mb-1">
+              {video.status === "pending" ? "Video queued" : "Generating your video…"}
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed max-w-xs">
+              MiniMax Hailuo is creating a personalized video for this topic. This usually takes 2–4 minutes.
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            {["pending", "generating"].map((s) => (
+              <div
+                key={s}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  video.status === s ? "bg-foreground" : "bg-foreground/20"
+                }`}
+              />
+            ))}
+            <div className="w-1.5 h-1.5 rounded-full bg-foreground/20" />
+          </div>
+        </>
+      )}
+    </div>
+    <div className="p-5">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <p className="text-[10px] font-semibold text-primary uppercase tracking-wide">Latest Guidance Video</p>
+        <VideoStatusBadge status={video.status} />
+      </div>
+      <h2 className="text-base font-display text-foreground mb-1.5">{video.topic}</h2>
+      <p className="text-[12px] text-muted-foreground leading-relaxed">
+        {video.status === "failed"
+          ? "This video could not be generated. The system will try again after the next call."
+          : "This page will update automatically once the video is ready — no need to refresh."}
+      </p>
+      <div className="flex items-center gap-1 mt-2 text-[11px] text-muted-foreground">
+        <Clock className="w-3 h-3" />
+        {new Date(video.generatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+      </div>
+    </div>
+  </div>
+);
+
 const CareGuide = () => {
   const [activeVideo, setActiveVideo] = useState<string | null>(null);
   const { loading, error, patient, calls, alerts } = useMemoDashboardData();
@@ -20,12 +125,17 @@ const CareGuide = () => {
   const videos = useQuery(
     api.healthVideos.listForPatient,
     patient?._id ? { patientId: patient._id as any, limit: 20 } : "skip"
-  );
+  ) as HealthVideo[] | undefined;
 
   const latestAlert = alerts[0] ?? null;
   const latestGuidanceTopic = calls.find((c) => c.videoGuidanceTopic)?.videoGuidanceTopic;
-  const featuredVideo = videos?.[0] ?? null;
-  const previousVideos = videos?.slice(1) ?? [];
+
+  // Split into completed vs in-progress
+  const completedVideos = videos?.filter((v) => v.status === "completed") ?? [];
+  const inProgressVideo = videos?.find((v) => v.status === "pending" || v.status === "generating" || v.status === "failed");
+
+  const featuredVideo = completedVideos[0] ?? null;
+  const previousVideos = completedVideos.slice(1);
 
   if (loading) {
     return (
@@ -84,7 +194,10 @@ const CareGuide = () => {
           </div>
         )}
 
-        {/* Featured Generated Video */}
+        {/* In-progress video — shown above the completed featured video */}
+        {inProgressVideo && <VideoGeneratingCard video={inProgressVideo} />}
+
+        {/* Featured Completed Video */}
         {featuredVideo ? (
           <div className="bg-card rounded-lg border border-border overflow-hidden mb-6">
             {activeVideo === featuredVideo._id ? (
@@ -122,27 +235,28 @@ const CareGuide = () => {
               </div>
             </div>
           </div>
-        ) : (
+        ) : !inProgressVideo ? (
+          /* No videos at all and nothing generating */
           <div className="bg-card rounded-lg border border-border overflow-hidden mb-6">
             <div className="aspect-video bg-muted flex flex-col items-center justify-center gap-3">
-              <Sparkles className="w-8 h-8 text-muted-foreground/40" />
-              <p className="text-[12px] text-muted-foreground text-center max-w-xs leading-relaxed">
+              <Sparkles className="w-8 h-8 text-muted-foreground/30" />
+              <p className="text-[12px] text-muted-foreground text-center max-w-xs leading-relaxed px-6">
                 {latestGuidanceTopic
-                  ? `Video generating for: "${latestGuidanceTopic}"`
-                  : "MiniMax Hailuo will generate a personalized health education video when an anomaly is detected in a call."}
+                  ? `A video will be generated for: "${latestGuidanceTopic}"`
+                  : "MiniMax Hailuo will generate a personalized video after a call where the patient expresses emotions or health concerns."}
               </p>
             </div>
             <div className="p-5">
               <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-1">Latest Guidance Video</p>
               <h2 className="text-base font-display text-foreground mb-1">No video yet</h2>
               <p className="text-[12px] text-muted-foreground leading-relaxed">
-                Videos are generated automatically when MiniMax M2 detects an anomaly during a call.
+                Videos are generated automatically after each call when MiniMax M2 detects emotional cues or health concerns.
               </p>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {/* Previous Generated Videos */}
+        {/* Previous Completed Videos */}
         {previousVideos.length > 0 && (
           <div className="mb-6">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Previous Guidance Videos</p>
@@ -191,7 +305,12 @@ const CareGuide = () => {
               <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Videos Generated</p>
             </div>
-            <p className="text-[12px] text-foreground">{videos?.length ?? 0} total</p>
+            <p className="text-[12px] text-foreground">
+              {completedVideos.length} completed
+              {inProgressVideo && inProgressVideo.status !== "failed" && (
+                <span className="ml-1.5 text-memo-amber">· 1 generating</span>
+              )}
+            </p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4">
             <div className="flex items-center gap-2 mb-2">

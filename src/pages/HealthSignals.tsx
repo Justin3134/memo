@@ -1,8 +1,8 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Check, Quote, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, Check, Quote, MessageSquare, MapPin } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
@@ -25,10 +25,19 @@ const Sparkline = ({ data, color }: { data: number[]; color: string }) => {
 };
 
 const HealthSignals = () => {
+  const navigate = useNavigate();
   const { loading, error, patient, calls, alerts, memories } = useMemoDashboardData();
   const [reviewedIds, setReviewedIds] = useState<string[]>([]);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+
+  const handleFindCare = (signal: string, description: string) => {
+    const params = new URLSearchParams({
+      signal,
+      description: description.slice(0, 200),
+    });
+    navigate(`/find-care?${params.toString()}`);
+  };
 
   const sortedCalls = useMemo(() => [...calls].sort((a, b) => a.startedAt - b.startedAt), [calls]);
 
@@ -196,14 +205,22 @@ const HealthSignals = () => {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => setReviewedIds((p) => p.includes(alert._id) ? p.filter((x) => x !== alert._id) : [...p, alert._id])}
-                      className={`px-2.5 py-1.5 text-[11px] font-medium rounded flex-shrink-0 transition-colors ${
-                        reviewed ? "bg-muted text-muted-foreground" : "bg-foreground text-background hover:opacity-90"
-                      }`}
-                    >
-                      {reviewed ? "Reviewed" : "Review"}
-                    </button>
+                    <div className="flex flex-col gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={() => setReviewedIds((p) => p.includes(alert._id) ? p.filter((x) => x !== alert._id) : [...p, alert._id])}
+                        className={`px-2.5 py-1.5 text-[11px] font-medium rounded transition-colors ${
+                          reviewed ? "bg-muted text-muted-foreground" : "bg-foreground text-background hover:opacity-90"
+                        }`}
+                      >
+                        {reviewed ? "Reviewed" : "Review"}
+                      </button>
+                      <button
+                        onClick={() => handleFindCare(alert.signalType, alert.description)}
+                        className="px-2.5 py-1.5 text-[11px] font-medium rounded border border-border bg-card text-foreground hover:bg-muted transition-colors flex items-center gap-1 justify-center"
+                      >
+                        <MapPin className="w-3 h-3" /> Find Care
+                      </button>
+                    </div>
                   </div>
                 </div>
 

@@ -93,7 +93,9 @@ export default defineSchema({
   healthVideos: defineTable({
     patientId: v.id("patients"),
     topic: v.string(),
-    videoUrl: v.string(),
+    status: v.string(), // "pending" | "generating" | "completed" | "failed"
+    videoUrl: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
     triggeredBy: v.string(),
     generatedAt: v.number(),
   }).index("by_patient", ["patientId"]),

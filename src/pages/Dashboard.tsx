@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Phone, ArrowRight, Eye, EyeOff, User, Bot } from "lucide-react";
+import { Phone, ArrowRight, Eye, EyeOff, User, Bot, ChevronDown, ChevronRight, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   XAxis,
@@ -30,6 +30,7 @@ const parseTranscriptLines = (transcript: string) => {
 const Dashboard = () => {
   const [activeMetric, setActiveMetric] = useState<"cognitive" | "motor" | "emotional">("cognitive");
   const [showTranscript, setShowTranscript] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const { loading, error, patient, calls, memories } = useMemoDashboardData();
 
   const chartData = useMemo(() => {
@@ -196,21 +197,21 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* Today's Call */}
+        {/* Latest Call */}
         <div className="border border-border rounded-lg p-4 bg-card">
           <div className="flex items-center gap-2 mb-2">
             <Phone className="w-3.5 h-3.5 text-foreground" />
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Today's Call</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Latest Call</p>
             <span className="ml-auto text-[11px] text-muted-foreground">{lastCallTimeLabel}</span>
           </div>
           <p className="text-[13px] text-foreground leading-relaxed mb-3">
             {lastCallSummary}
           </p>
-          <div className="flex gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-3">
             {[
               { label: "Pause Freq", value: `${latestCall?.pauseFrequency?.toFixed(1) ?? "-"}/min`, baseline: `${patient?.baseline?.pauseFrequency?.toFixed(1) ?? "-"}`, warn: !!latestCall && latestCall.pauseFrequency ? latestCall.pauseFrequency > (patient?.baseline?.pauseFrequency ?? 0) + 1.0 : false },
               { label: "Speech Rate", value: `${Math.round(latestCall?.speechRate ?? 0)} wpm`, baseline: `${Math.round(patient?.baseline?.speechRate ?? 0)}`, warn: false },
-              { label: "Latency", value: `${latestCall?.responseLatency?.toFixed(1) ?? "-" } s`, baseline: `${patient?.baseline?.responseLatency?.toFixed(1) ?? "-"}`, warn: false },
+              { label: "Latency", value: `${latestCall?.responseLatency?.toFixed(1) ?? "-"} s`, baseline: `${patient?.baseline?.responseLatency?.toFixed(1) ?? "-"}`, warn: false },
             ].map((m) => (
               <span key={m.label} className={`px-2 py-1 rounded text-[10px] font-medium ${m.warn ? "bg-memo-amber/10 text-memo-amber" : "bg-muted text-muted-foreground"}`}>
                 {m.label}: {m.value} vs {m.baseline}
@@ -225,13 +226,8 @@ const Dashboard = () => {
                 onClick={() => setShowTranscript((v) => !v)}
                 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showTranscript ? (
-                  <><EyeOff className="w-3.5 h-3.5" /> Hide conversation</>
-                ) : (
-                  <><Eye className="w-3.5 h-3.5" /> View conversation</>
-                )}
+                {showTranscript ? <><EyeOff className="w-3.5 h-3.5" /> Hide conversation</> : <><Eye className="w-3.5 h-3.5" /> View conversation</>}
               </button>
-
               {showTranscript && (
                 <div className="mt-3 border border-border rounded-lg overflow-hidden">
                   <div className="bg-muted/40 px-3 py-2 flex items-center justify-between border-b border-border">
@@ -242,16 +238,9 @@ const Dashboard = () => {
                     {parseTranscriptLines(latestCall.transcript).map((line, i) => (
                       <div key={i} className={`flex gap-2 ${line.role === "ai" ? "" : "flex-row-reverse"}`}>
                         <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${line.role === "ai" ? "bg-foreground/10" : "bg-primary/10"}`}>
-                          {line.role === "ai"
-                            ? <Bot className="w-2.5 h-2.5 text-foreground/60" />
-                            : <User className="w-2.5 h-2.5 text-primary/60" />
-                          }
+                          {line.role === "ai" ? <Bot className="w-2.5 h-2.5 text-foreground/60" /> : <User className="w-2.5 h-2.5 text-primary/60" />}
                         </div>
-                        <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${
-                          line.role === "ai"
-                            ? "bg-muted text-foreground rounded-tl-none"
-                            : "bg-primary/10 text-foreground rounded-tr-none"
-                        }`}>
+                        <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${line.role === "ai" ? "bg-muted text-foreground rounded-tl-none" : "bg-primary/10 text-foreground rounded-tr-none"}`}>
                           {line.text}
                         </div>
                       </div>
@@ -266,6 +255,127 @@ const Dashboard = () => {
             View Health Signals <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
+
+        {/* All Conversations */}
+        {calls.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">All Conversations</p>
+              <span className="text-[10px] text-muted-foreground">{calls.length} call{calls.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div className="space-y-2">
+              {calls.map((call) => {
+                const isOpen = expandedCallId === call._id;
+                const cogScore = call.cognitiveScore ?? null;
+                const scoreColor = cogScore === null ? "text-muted-foreground" : cogScore >= 75 ? "text-memo-green" : cogScore >= 60 ? "text-memo-amber" : "text-memo-red";
+                const callDate = new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                const callTime = new Date(call.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+                return (
+                  <div key={call._id} className="border border-border rounded-lg bg-card overflow-hidden">
+                    <button
+                      onClick={() => setExpandedCallId(isOpen ? null : call._id)}
+                      className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-secondary flex-shrink-0 flex items-center justify-center">
+                        <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-[12px] font-medium text-foreground">{callDate}</p>
+                          <span className="text-[10px] text-muted-foreground">{callTime}</span>
+                          {call.anomalyDetected && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-memo-amber/10 text-memo-amber font-semibold">Signal detected</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate pr-4">
+                          {call.summary ?? "Call completed — analysis pending."}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {cogScore !== null && (
+                          <span className={`text-[12px] font-semibold ${scoreColor}`}>{Math.round(cogScore)}</span>
+                        )}
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Clock className="w-3 h-3" />
+                          {call.duration ?? 0}s
+                        </div>
+                        {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                      </div>
+                    </button>
+
+                    {isOpen && (
+                      <div className="border-t border-border px-4 py-4 space-y-4">
+                        {/* Summary */}
+                        {call.summary && (
+                          <p className="text-[13px] text-foreground leading-relaxed">{call.summary}</p>
+                        )}
+
+                        {/* Metrics row */}
+                        <div className="flex flex-wrap gap-2">
+                          {cogScore !== null && (
+                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                              Cognitive: {Math.round(cogScore)}
+                            </span>
+                          )}
+                          {call.emotionalScore != null && (
+                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                              Emotional: {Math.round(call.emotionalScore)}
+                            </span>
+                          )}
+                          {call.motorScore != null && (
+                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                              Motor: {Math.round(call.motorScore)}
+                            </span>
+                          )}
+                          {call.speechRate != null && (
+                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
+                              Speech: {Math.round(call.speechRate)} wpm
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Health mentions */}
+                        {call.healthMentions && call.healthMentions.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Health mentions</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {call.healthMentions.map((m, i) => (
+                                <span key={i} className="px-2 py-0.5 rounded-full bg-secondary text-[11px] text-muted-foreground">{m}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Transcript */}
+                        {call.transcript && (
+                          <div className="border border-border rounded-lg overflow-hidden">
+                            <div className="bg-muted/40 px-3 py-2 flex items-center justify-between border-b border-border">
+                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Transcript</p>
+                              <p className="text-[10px] text-muted-foreground">{call.duration ?? 0}s</p>
+                            </div>
+                            <div className="p-3 space-y-2.5 max-h-64 overflow-y-auto">
+                              {parseTranscriptLines(call.transcript).map((line, i) => (
+                                <div key={i} className={`flex gap-2 ${line.role === "ai" ? "" : "flex-row-reverse"}`}>
+                                  <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${line.role === "ai" ? "bg-foreground/10" : "bg-primary/10"}`}>
+                                    {line.role === "ai" ? <Bot className="w-2.5 h-2.5 text-foreground/60" /> : <User className="w-2.5 h-2.5 text-primary/60" />}
+                                  </div>
+                                  <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${line.role === "ai" ? "bg-muted text-foreground rounded-tl-none" : "bg-primary/10 text-foreground rounded-tr-none"}`}>
+                                    {line.text}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </MemoLayout>
   );

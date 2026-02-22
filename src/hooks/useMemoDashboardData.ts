@@ -1,46 +1,34 @@
 import { useQuery } from "convex/react";
 import { useState, useEffect, useCallback } from "react";
 import { api } from "../../convex/_generated/api";
-import { getDefaultFamilyId, getActivePatientId, setActivePatientId } from "@/lib/memoBackend";
+import { getActivePatientId, setActivePatientId } from "@/lib/memoBackend";
 
 export const useMemoDashboardData = () => {
-  const familyUserId = getDefaultFamilyId();
-
-  const patients = useQuery(api.patients.listForFamily, { familyUserId });
+  // Always load all patients — the dataset is tiny and this is the most reliable
   const allPatients = useQuery(api.patients.getAll);
 
   const [activePatientId, setActivePatientIdState] = useState<string | null>(
     () => getActivePatientId()
   );
 
-  // When patients load and there's no saved active patient, save the first one
+  // Auto-select the first patient when none is saved
   useEffect(() => {
-    if (!activePatientId) {
-      const first = patients?.[0] ?? allPatients?.[0];
-      if (first) {
-        setActivePatientId(first._id);
-        setActivePatientIdState(first._id);
-      }
+    if (!activePatientId && allPatients && allPatients.length > 0) {
+      const first = allPatients[0];
+      setActivePatientId(first._id);
+      setActivePatientIdState(first._id);
     }
-  }, [patients, allPatients, activePatientId]);
+  }, [allPatients, activePatientId]);
 
   const switchPatient = useCallback((id: string) => {
     setActivePatientId(id);
     setActivePatientIdState(id);
   }, []);
 
-  const combinedPatients = (() => {
-    const seen = new Set<string>();
-    const result = [];
-    for (const p of [...(patients ?? []), ...(allPatients ?? [])]) {
-      if (!seen.has(p._id)) { seen.add(p._id); result.push(p); }
-    }
-    return result;
-  })();
-
+  // Find the active patient — prefer the saved ID, fall back to first
   const patient =
-    combinedPatients.find((p) => p._id === activePatientId) ??
-    combinedPatients[0] ??
+    (activePatientId ? allPatients?.find((p) => p._id === activePatientId) : null) ??
+    allPatients?.[0] ??
     null;
 
   const patientId = patient?._id;
@@ -60,15 +48,17 @@ export const useMemoDashboardData = () => {
     patientId ? { patientId, limit: 20 } : "skip"
   );
 
+  // Loading: waiting for patient list, or waiting for patient data once we have a patientId
   const loading =
-    patients === undefined ||
-    (patientId !== undefined && (calls === undefined || memories === undefined || alerts === undefined));
+    allPatients === undefined ||
+    (patientId !== undefined &&
+      (calls === undefined || memories === undefined || alerts === undefined));
 
   return {
     loading,
     error: null,
     patient: patient ?? null,
-    allPatients: combinedPatients,
+    allPatients: allPatients ?? [],
     switchPatient,
     calls: calls ?? [],
     memories: memories ?? [],

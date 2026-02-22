@@ -140,14 +140,20 @@ app.post("/vapi-webhook", async (req, res) => {
 
     const callId = call.id ?? `call-${Date.now()}`;
 
-    // Resolve patientId — use metadata if present, otherwise fall back to first patient
+    // Resolve patientId — use metadata first, then match by phone, then fall back to first patient
     let patientId: string | null = call.metadata?.patientId ?? null;
 
     if (!patientId) {
       try {
         const all = await convex.query(anyApi.patients.getAll);
         if (all && all.length > 0) {
-          patientId = all[0]._id;
+          // Try to match by the customer phone number Vapi reports
+          const customerPhone = (call.customer?.number ?? "").replace(/\D/g, "");
+          const matched = customerPhone
+            ? all.find((p: any) => p.phoneNumber.replace(/\D/g, "") === customerPhone)
+            : null;
+          patientId = matched?._id ?? all[0]._id;
+          console.log(`Resolved patient: ${matched ? matched.name : all[0].name} (${patientId}) — phone match: ${!!matched}`);
         }
       } catch (e) {
         console.error("Could not resolve patient from Convex:", e);

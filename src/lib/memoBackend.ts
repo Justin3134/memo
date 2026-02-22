@@ -11,7 +11,7 @@ export type MemoFamilyContext = {
 const FAMILY_KEY = "memoFamilyUserId";
 const LOCAL_PATIENT_KEY = "memoLocalPatient";
 
-const getDefaultFamilyId = () => {
+export const getDefaultFamilyId = () => {
   if (typeof window === "undefined") {
     return "family-default";
   }

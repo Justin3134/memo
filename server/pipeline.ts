@@ -33,7 +33,7 @@ const minimax = new OpenAI({
   baseURL: "https://api.minimax.io/v1",
 });
 
-const convex = new ConvexHttpClient(process.env.CONVEX_DEPLOYMENT ?? "");
+const convex = new ConvexHttpClient(process.env.CONVEX_URL ?? "");
 const plivoClient = new ((plivo as unknown as {
   Client: new (
     authId: string,

@@ -2,8 +2,7 @@ import { ConvexHttpClient } from "convex/browser";
 
 export const convexDeploymentUrl =
   import.meta.env.VITE_CONVEX_URL ??
-  import.meta.env.VITE_CONVEX_DEPLOYMENT ??
-  "https://reminiscent-peccary-944.convex.cloud";
+  "https://friendly-ostrich-184.convex.cloud";
 
 export const convexClient = new ConvexHttpClient(convexDeploymentUrl);
 

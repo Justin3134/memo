@@ -1,69 +1,41 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ConvexPatient, ConvexCall, ConvexMemory, ConvexAlert } from "@/lib/convexClient";
-import { fetchDashboardData } from "@/lib/memoBackend";
-
-type DashboardState = {
-  loading: boolean;
-  error: string | null;
-  patient: ConvexPatient | null;
-  calls: ConvexCall[];
-  memories: ConvexMemory[];
-  alerts: ConvexAlert[];
-};
-
-const initialState: DashboardState = {
-  loading: true,
-  error: null,
-  patient: null,
-  calls: [],
-  memories: [],
-  alerts: [],
-};
-
-const isMissingPublicFunctionError = (error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Could not find public function");
-};
+import { useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { getDefaultFamilyId } from "@/lib/memoBackend";
 
 export const useMemoDashboardData = () => {
-  const [state, setState] = useState<DashboardState>(initialState);
+  const familyUserId = getDefaultFamilyId();
 
-  const loadData = useCallback(async () => {
-    try {
-      const data = await fetchDashboardData();
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: null,
-        ...data,
-      }));
-    } catch (error) {
-      if (isMissingPublicFunctionError(error)) {
-        setState((prev) => ({
-          ...prev,
-          loading: false,
-          error: null,
-          patient: null,
-          calls: [],
-          memories: [],
-          alerts: [],
-        }));
-        return;
-      }
+  const patients = useQuery(api.patients.listForFamily, { familyUserId });
+  const allPatients = useQuery(api.patients.getAll);
 
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : "Could not load dashboard data.",
-      }));
-    }
-  }, []);
+  const patient = patients?.[0] ?? allPatients?.[0] ?? null;
+  const patientId = patient?._id;
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 20_000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+  const calls = useQuery(
+    api.calls.listForPatient,
+    patientId ? { patientId, limit: 30 } : "skip"
+  );
 
-  return { ...state, refresh: loadData };
+  const memories = useQuery(
+    api.memories.getRecent,
+    patientId ? { patientId, limit: 20 } : "skip"
+  );
+
+  const alerts = useQuery(
+    api.alerts.getRecentForPatient,
+    patientId ? { patientId, limit: 20 } : "skip"
+  );
+
+  const loading =
+    patients === undefined ||
+    (patientId !== undefined && (calls === undefined || memories === undefined || alerts === undefined));
+
+  return {
+    loading,
+    error: null,
+    patient: patient ?? null,
+    calls: calls ?? [],
+    memories: memories ?? [],
+    alerts: alerts ?? [],
+  };
 };

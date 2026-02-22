@@ -6,7 +6,7 @@ import { buildSystemPrompt } from "./systemPrompt";
 
 dotenv.config();
 
-const convex = new ConvexHttpClient(process.env.CONVEX_DEPLOYMENT ?? "");
+const convex = new ConvexHttpClient(process.env.CONVEX_URL ?? "");
 const normalizeToE164 = (rawPhone: string) => {
   const digits = String(rawPhone ?? "").replace(/\D/g, "");
   if (String(rawPhone ?? "").trim().startsWith("+")) {

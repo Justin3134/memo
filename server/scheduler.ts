@@ -66,23 +66,27 @@ async function triggerVapiCall(patient: any, systemPrompt: string) {
         model: {
           provider: "openai",
           model: "gpt-4o",
-          systemPrompt,
+          messages: [{ role: "system", content: systemPrompt }],
         },
         voice: {
           provider: "11labs",
-          voiceId: patient.voiceId ?? process.env.DEFAULT_VOICE_ID,
+          voiceId: patient.voiceId ?? process.env.DEFAULT_VOICE_ID ?? "cgSgspJ2msm6clMCkdW9",
         },
         transcriber: {
           provider: "deepgram",
           language: "en",
         },
+        endCallMessage: "Take care, talk soon.",
+        silenceTimeoutSeconds: 30,
+        maxDurationSeconds: 600,
       },
       metadata: { patientId: patient._id },
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to trigger Vapi call for patient ${patient._id}`);
+    const errorBody = await response.text();
+    throw new Error(`Failed to trigger Vapi call for patient ${patient._id}: ${response.status} ${errorBody}`);
   }
 
   const payload = await response.json();

@@ -98,5 +98,6 @@ export default defineSchema({
     errorMessage: v.optional(v.string()),
     triggeredBy: v.string(),
     generatedAt: v.number(),
+    taskId: v.optional(v.string()), // MiniMax video generation task_id for scheduler polling
   }).index("by_patient", ["patientId"]),
 });

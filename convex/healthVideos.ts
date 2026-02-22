@@ -28,13 +28,20 @@ export const updateStatus = mutation({
     status: v.string(),
     videoUrl: v.optional(v.string()),
     errorMessage: v.optional(v.string()),
+    taskId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const patch: Record<string, unknown> = { status: args.status };
     if (args.videoUrl !== undefined) patch.videoUrl = args.videoUrl;
     if (args.errorMessage !== undefined) patch.errorMessage = args.errorMessage;
+    if (args.taskId !== undefined) patch.taskId = args.taskId;
     await ctx.db.patch(args.videoId, patch);
   },
+});
+
+export const getById = query({
+  args: { videoId: v.id("healthVideos") },
+  handler: async (ctx, args) => ctx.db.get(args.videoId),
 });
 
 export const listForPatient = query({

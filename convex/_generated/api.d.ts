@@ -9,10 +9,13 @@
  */
 
 import type * as alerts from "../alerts.js";
+import type * as analyzeCall from "../analyzeCall.js";
 import type * as calls from "../calls.js";
 import type * as healthVideos from "../healthVideos.js";
+import type * as http from "../http.js";
 import type * as memories from "../memories.js";
 import type * as patients from "../patients.js";
+import type * as pollVideo from "../pollVideo.js";
 
 import type {
   ApiFromModules,
@@ -22,10 +25,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   alerts: typeof alerts;
+  analyzeCall: typeof analyzeCall;
   calls: typeof calls;
   healthVideos: typeof healthVideos;
+  http: typeof http;
   memories: typeof memories;
   patients: typeof patients;
+  pollVideo: typeof pollVideo;
 }>;
 
 /**

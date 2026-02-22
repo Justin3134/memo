@@ -311,7 +311,9 @@ async function generateHealthVideo(
   tone: string = "encouraging"
 ) {
   const apiKey = process.env.MINIMAX_API_KEY ?? "";
-  const groupId = process.env.MINIMAX_GROUP_ID ?? "";
+  const rawGroupId = process.env.MINIMAX_GROUP_ID ?? "";
+  // Ignore placeholder values that were never replaced
+  const groupId = rawGroupId && rawGroupId !== "your_group_id" ? rawGroupId : "";
 
   // Step 0 — Create the record immediately so the UI shows "Generating..."
   const videoId = await convex.mutation(anyApi.healthVideos.insert, {

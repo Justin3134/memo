@@ -147,13 +147,18 @@ app.post("/vapi-webhook", async (req, res) => {
       try {
         const all = await convex.query(anyApi.patients.getAll);
         if (all && all.length > 0) {
-          // Try to match by the customer phone number Vapi reports
-          const customerPhone = (call.customer?.number ?? "").replace(/\D/g, "");
-          const matched = customerPhone
-            ? all.find((p: any) => p.phoneNumber.replace(/\D/g, "") === customerPhone)
+          // Normalize both sides to digits-only for comparison
+          const customerRaw = call.customer?.number ?? "";
+          const customerDigits = customerRaw.replace(/\D/g, "");
+          const matched = customerDigits
+            ? all.find((p: any) => {
+                const pDigits = p.phoneNumber.replace(/\D/g, "");
+                // Match full number or last 10 digits
+                return pDigits === customerDigits || pDigits.slice(-10) === customerDigits.slice(-10);
+              })
             : null;
           patientId = matched?._id ?? all[0]._id;
-          console.log(`Resolved patient: ${matched ? matched.name : all[0].name} (${patientId}) — phone match: ${!!matched}`);
+          console.log(`Resolved patient: ${(matched ?? all[0]).name} (${patientId}) — phone match: ${!!matched}`);
         }
       } catch (e) {
         console.error("Could not resolve patient from Convex:", e);

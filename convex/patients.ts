@@ -187,6 +187,13 @@ export const recalculateBaseline = mutation({
   },
 });
 
+export const deletePatient = mutation({
+  args: { patientId: v.id("patients") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.patientId);
+  },
+});
+
 export const giveConsent = mutation({
   args: { phoneNumber: v.string() },
   handler: async (ctx, args) => {

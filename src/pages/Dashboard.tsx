@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Phone, ArrowRight } from "lucide-react";
+import { Phone, ArrowRight, Eye, EyeOff, User, Bot } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   XAxis,
@@ -15,8 +15,21 @@ import {
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
+const parseTranscriptLines = (transcript: string) => {
+  return transcript
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      if (line.startsWith("AI:")) return { role: "ai" as const, text: line.slice(3).trim() };
+      if (line.startsWith("User:")) return { role: "user" as const, text: line.slice(5).trim() };
+      return { role: "user" as const, text: line };
+    });
+};
+
 const Dashboard = () => {
   const [activeMetric, setActiveMetric] = useState<"cognitive" | "motor" | "emotional">("cognitive");
+  const [showTranscript, setShowTranscript] = useState(false);
   const { loading, error, patient, calls, memories } = useMemoDashboardData();
 
   const chartData = useMemo(() => {
@@ -204,6 +217,51 @@ const Dashboard = () => {
               </span>
             ))}
           </div>
+
+          {/* Transcript toggle */}
+          {latestCall?.transcript && (
+            <div className="mb-3">
+              <button
+                onClick={() => setShowTranscript((v) => !v)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showTranscript ? (
+                  <><EyeOff className="w-3.5 h-3.5" /> Hide conversation</>
+                ) : (
+                  <><Eye className="w-3.5 h-3.5" /> View conversation</>
+                )}
+              </button>
+
+              {showTranscript && (
+                <div className="mt-3 border border-border rounded-lg overflow-hidden">
+                  <div className="bg-muted/40 px-3 py-2 flex items-center justify-between border-b border-border">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Conversation transcript</p>
+                    <p className="text-[10px] text-muted-foreground">{latestCall.duration ?? 0}s</p>
+                  </div>
+                  <div className="p-3 space-y-2.5 max-h-72 overflow-y-auto">
+                    {parseTranscriptLines(latestCall.transcript).map((line, i) => (
+                      <div key={i} className={`flex gap-2 ${line.role === "ai" ? "" : "flex-row-reverse"}`}>
+                        <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${line.role === "ai" ? "bg-foreground/10" : "bg-primary/10"}`}>
+                          {line.role === "ai"
+                            ? <Bot className="w-2.5 h-2.5 text-foreground/60" />
+                            : <User className="w-2.5 h-2.5 text-primary/60" />
+                          }
+                        </div>
+                        <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${
+                          line.role === "ai"
+                            ? "bg-muted text-foreground rounded-tl-none"
+                            : "bg-primary/10 text-foreground rounded-tr-none"
+                        }`}>
+                          {line.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <Link to="/health-signals" className="flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
             View Health Signals <ArrowRight className="w-3 h-3" />
           </Link>

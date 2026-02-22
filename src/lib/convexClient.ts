@@ -51,6 +51,11 @@ export type ConvexCall = {
   emotionalScore?: number;
   motorScore?: number;
   healthMentions?: string[];
+  conversationSignals?: Array<{
+    quote: string;
+    signal: string;
+    explanation: string;
+  }>;
   anomalyDetected?: boolean;
   videoGuidanceTopic?: string;
 };
@@ -79,4 +84,5 @@ export type ConvexAlert = {
   reviewed: boolean;
   videoUrl?: string;
   recommendedAction?: string;
+  evidenceQuotes?: string[];
 };

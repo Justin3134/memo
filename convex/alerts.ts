@@ -14,6 +14,7 @@ export const insert = mutation({
     reviewed: v.boolean(),
     videoUrl: v.optional(v.string()),
     recommendedAction: v.optional(v.string()),
+    evidenceQuotes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("alerts", {
@@ -28,6 +29,7 @@ export const insert = mutation({
       reviewed: args.reviewed,
       videoUrl: args.videoUrl,
       recommendedAction: args.recommendedAction,
+      evidenceQuotes: args.evidenceQuotes,
     });
   },
 });

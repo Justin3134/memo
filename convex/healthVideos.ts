@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const insert = mutation({
@@ -17,5 +17,19 @@ export const insert = mutation({
       triggeredBy: args.triggeredBy,
       generatedAt: args.generatedAt,
     });
+  },
+});
+
+export const listForPatient = query({
+  args: {
+    patientId: v.id("patients"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("healthVideos")
+      .withIndex("by_patient", (q) => q.eq("patientId", args.patientId))
+      .order("desc")
+      .take(args.limit ?? 20);
   },
 });

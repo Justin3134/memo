@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import { ConvexHttpClient } from "convex/browser";
+import { anyApi } from "convex/server";
 import { runPostCallPipeline } from "./pipeline";
 
 dotenv.config();
@@ -42,7 +43,7 @@ app.post("/vapi-webhook", async (req, res) => {
 
     if (!patientId) {
       try {
-        const all = await convex.query("patients:getAll");
+        const all = await convex.query(anyApi.patients.getAll);
         if (all && all.length > 0) {
           patientId = all[0]._id;
         }

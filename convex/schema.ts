@@ -56,6 +56,11 @@ export default defineSchema({
     emotionalScore: v.optional(v.number()),
     motorScore: v.optional(v.number()),
     healthMentions: v.optional(v.array(v.string())),
+    conversationSignals: v.optional(v.array(v.object({
+      quote: v.string(),
+      signal: v.string(),
+      explanation: v.string(),
+    }))),
     anomalyDetected: v.optional(v.boolean()),
     videoGuidanceTopic: v.optional(v.string()),
   }).index("by_patient", ["patientId"]).index("by_vapi_call", ["vapiCallId"]),
@@ -82,6 +87,7 @@ export default defineSchema({
     reviewed: v.boolean(),
     videoUrl: v.optional(v.string()),
     recommendedAction: v.optional(v.string()),
+    evidenceQuotes: v.optional(v.array(v.string())),
   }).index("by_patient", ["patientId"]),
 
   healthVideos: defineTable({

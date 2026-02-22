@@ -9,6 +9,7 @@ export type MemoFamilyContext = {
 };
 
 const FAMILY_KEY = "memoFamilyUserId";
+const LOCAL_PATIENT_KEY = "memoLocalPatient";
 
 const getDefaultFamilyId = () => {
   if (typeof window === "undefined") {
@@ -42,29 +43,63 @@ export async function upsertPatientFromOnboarding(args: {
 
   const firstFamilyPhone = args.familyMembers.find((member) => member.phone.trim())?.phone.trim();
 
-  const patientId = await convexClient.mutation("patients:create", {
-    name: args.name.trim() || "New Patient",
-    phoneNumber: args.phone.trim(),
-    familyUserId,
-    memoTime: args.callTime,
-    timezone: args.timezone || "America/Chicago",
-    consentGiven: true,
-    knownPeople,
-    emergencyContact: firstFamilyPhone,
-  });
+  try {
+    const patientId = await convexClient.mutation("patients:create", {
+      name: args.name.trim() || "New Patient",
+      phoneNumber: args.phone.trim(),
+      familyUserId,
+      memoTime: args.callTime,
+      timezone: args.timezone || "America/Chicago",
+      consentGiven: true,
+      knownPeople,
+      emergencyContact: firstFamilyPhone,
+    });
 
-  return patientId;
+    return patientId;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const missingCreate =
+      message.includes("Could not find public function") && message.includes("patients:create");
+
+    if (!missingCreate) {
+      throw error;
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(
+        LOCAL_PATIENT_KEY,
+        JSON.stringify({
+          _id: "local-patient",
+          name: args.name.trim() || "New Patient",
+          phoneNumber: args.phone.trim(),
+          familyUserId,
+          memoTime: args.callTime,
+          timezone: args.timezone || "America/Chicago",
+          consentGiven: true,
+          knownPeople,
+          emergencyContact: firstFamilyPhone,
+        })
+      );
+    }
+
+    return "local-patient";
+  }
 }
 
 export async function triggerCallNow(args: { phone: string; name?: string }) {
-  const response = await fetch("http://localhost:3001/call-now", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      phoneNumber: args.phone.trim(),
-      name: args.name?.trim() || "Patient",
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("http://localhost:3001/call-now", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phoneNumber: args.phone.trim(),
+        name: args.name?.trim() || "Patient",
+      }),
+    });
+  } catch {
+    throw new Error("Cannot reach local backend at http://localhost:3001/call-now.");
+  }
 
   if (!response.ok) {
     const message = await response.text();

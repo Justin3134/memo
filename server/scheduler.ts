@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import dotenv from "dotenv";
 import { ConvexHttpClient } from "convex/browser";
+import { anyApi } from "convex/server";
 
 import { buildSystemPrompt } from "./systemPrompt";
 
@@ -19,12 +20,12 @@ const normalizeToE164 = (rawPhone: string) => {
 
 cron.schedule("*/1 * * * *", async () => {
   try {
-    const patients = await convex.query("patients:getDueForCall", {
+    const patients = await convex.query(anyApi.patients.getDueForCall, {
       currentTime: new Date().toISOString(),
     });
 
     for (const patient of patients) {
-      const memories = await convex.query("memories:getRecent", {
+      const memories = await convex.query(anyApi.memories.getRecent, {
         patientId: patient._id,
         limit: 10,
       });
@@ -93,7 +94,7 @@ async function triggerVapiCall(patient: any, systemPrompt: string) {
   const vapiCallId = payload?.id ?? payload?.call?.id;
   if (!vapiCallId) return;
 
-  await convex.mutation("calls:createInitialCall", {
+  await convex.mutation(anyApi.calls.createInitialCall, {
     patientId: patient._id,
     vapiCallId,
     startedAt: Date.now(),

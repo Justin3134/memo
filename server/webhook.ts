@@ -3,12 +3,114 @@ import dotenv from "dotenv";
 import { ConvexHttpClient } from "convex/browser";
 import { anyApi } from "convex/server";
 import { runPostCallPipeline } from "./pipeline";
+import { buildSystemPrompt } from "./systemPrompt";
 
 dotenv.config();
 
 const convex = new ConvexHttpClient(process.env.CONVEX_URL ?? "");
 const app = express();
 app.use(express.json());
+
+const normalizeToE164 = (rawPhone: string) => {
+  const digits = String(rawPhone ?? "").replace(/\D/g, "");
+  if (String(rawPhone ?? "").trim().startsWith("+")) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+};
+
+// Immediately trigger a Vapi call for a given patient or ad-hoc phone number
+app.post("/call-now", async (req, res) => {
+  try {
+    const { phoneNumber, name, patientId } = req.body as {
+      phoneNumber?: string;
+      name?: string;
+      patientId?: string;
+    };
+
+    const rawPhone = phoneNumber?.trim();
+    if (!rawPhone) return res.status(400).json({ error: "phoneNumber is required" });
+
+    const e164 = normalizeToE164(rawPhone);
+    if (!e164) return res.status(400).json({ error: `Cannot normalize "${rawPhone}" to E.164 format` });
+
+    // Try to look up the patient for personalised system prompt
+    let patient: any = null;
+    if (patientId) {
+      try {
+        patient = await convex.query(anyApi.patients.getById, { patientId });
+      } catch { /* fallback to anonymous */ }
+    }
+    if (!patient && rawPhone) {
+      try {
+        const all = await convex.query(anyApi.patients.getAll);
+        patient = all?.find((p: any) => normalizeToE164(p.phoneNumber) === e164) ?? all?.[0] ?? null;
+      } catch { /* ignore */ }
+    }
+
+    const patientName = patient?.name ?? name ?? "there";
+    const systemPrompt = patient
+      ? buildSystemPrompt(patient, "", "")
+      : `You are Memo, a warm and caring AI companion calling ${patientName}. Have a friendly 5-10 minute conversation, ask how they are feeling today, and listen attentively.`;
+
+    const response = await fetch("https://api.vapi.ai/call", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.VAPI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
+        customer: { number: e164 },
+        assistant: {
+          model: {
+            provider: "openai",
+            model: "gpt-4o",
+            messages: [{ role: "system", content: systemPrompt }],
+          },
+          voice: {
+            provider: "11labs",
+            voiceId: patient?.voiceId ?? process.env.DEFAULT_VOICE_ID ?? "cgSgspJ2msm6clMCkdW9",
+          },
+          transcriber: { provider: "deepgram", language: "en" },
+          endCallMessage: "Take care, speak soon!",
+          silenceTimeoutSeconds: 30,
+          maxDurationSeconds: 600,
+        },
+        metadata: { patientId: patient?._id ?? patientId ?? null },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error("Vapi call-now error:", response.status, body);
+      return res.status(502).json({ error: `Vapi error ${response.status}: ${body}` });
+    }
+
+    const payload = await response.json();
+    const vapiCallId = payload?.id ?? payload?.call?.id;
+    console.log(`Immediate call triggered → ${e164} (vapiCallId: ${vapiCallId})`);
+
+    // Pre-create the call record
+    if (vapiCallId && patient?._id) {
+      try {
+        await convex.mutation(anyApi.calls.createInitialCall, {
+          patientId: patient._id,
+          vapiCallId,
+          startedAt: Date.now(),
+          status: "initiated",
+        });
+      } catch (e) {
+        console.warn("Could not pre-create call record:", e);
+      }
+    }
+
+    return res.json({ success: true, vapiCallId });
+  } catch (error) {
+    console.error("call-now error:", error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Unknown error" });
+  }
+});
 
 app.post("/vapi-webhook", async (req, res) => {
   try {

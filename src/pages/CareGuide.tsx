@@ -3,8 +3,6 @@ import { useState } from "react";
 import { Play, AlertTriangle, BookOpen, Sparkles, Clock, RefreshCw, Loader2, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
 const staticGuides = [
@@ -122,10 +120,7 @@ const CareGuide = () => {
   const [activeVideo, setActiveVideo] = useState<string | null>(null);
   const { loading, error, patient, calls, alerts } = useMemoDashboardData();
 
-  const videos = useQuery(
-    api.healthVideos.listForPatient,
-    patient?._id ? { patientId: patient._id as any, limit: 20 } : "skip"
-  ) as HealthVideo[] | undefined;
+  const videos: HealthVideo[] | undefined = undefined;
 
   const latestAlert = alerts[0] ?? null;
   const latestGuidanceTopic = calls.find((c) => c.videoGuidanceTopic)?.videoGuidanceTopic;

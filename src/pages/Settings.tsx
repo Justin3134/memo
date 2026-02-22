@@ -1,6 +1,6 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useEffect, useState } from "react";
-import { User, Clock, Bell, Mic, Trash2, Volume2, Upload } from "lucide-react";
+import { User, Clock, Bell, Mic, Trash2, Volume2, Upload, Check, Plus } from "lucide-react";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { Link } from "react-router-dom";
 
@@ -14,7 +14,7 @@ const voiceModels = [
 const inputClasses = "w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground";
 
 const Settings = () => {
-  const { loading, error, patient } = useMemoDashboardData();
+  const { loading, error, patient, allPatients, switchPatient } = useMemoDashboardData();
   const [callTime, setCallTime] = useState("10:00");
   const [callFreq, setCallFreq] = useState("daily");
   const [selectedVoice, setSelectedVoice] = useState("aria");
@@ -54,12 +54,12 @@ const Settings = () => {
         <div className="max-w-3xl mx-auto animate-fade-in-up space-y-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Configuration</p>
           <h1 className="text-xl font-display text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground">Framework mode: no patient data yet.</p>
-          <div className="bg-card rounded-lg border border-border p-5">
-            <p className="text-[11px] text-muted-foreground">Patient fields will appear after onboarding is completed.</p>
-          </div>
-          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
-            Register a patient
+          <p className="text-sm text-muted-foreground">No patient registered yet.</p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-medium bg-foreground text-background rounded-md hover:opacity-90"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add a patient
           </Link>
         </div>
       </MemoLayout>
@@ -73,11 +73,67 @@ const Settings = () => {
         <h1 className="text-xl font-display text-foreground mb-6">Settings</h1>
 
         <div className="space-y-5">
+
+          {/* All Patients */}
+          <section className="bg-card rounded-lg border border-border p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <User className="w-3.5 h-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Patients</p>
+              </div>
+              <Link
+                to="/"
+                className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add patient
+              </Link>
+            </div>
+
+            {allPatients.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground">No patients registered yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {allPatients.map((p) => {
+                  const isActive = p._id === patient._id;
+                  return (
+                    <button
+                      key={p._id}
+                      onClick={() => switchPatient(p._id)}
+                      className={`w-full text-left flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-all ${
+                        isActive
+                          ? "border-foreground bg-foreground/[0.03]"
+                          : "border-border hover:border-foreground/30 hover:bg-muted/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-[11px] font-semibold text-muted-foreground flex-shrink-0">
+                          {p.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-[13px] font-medium text-foreground">{p.name}</p>
+                          <p className="text-[11px] text-muted-foreground">{p.phoneNumber} · {p.timezone}</p>
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="flex items-center gap-1 text-[10px] font-semibold text-foreground flex-shrink-0">
+                          <Check className="w-3 h-3" /> Active
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+              Click a patient to switch the active view. All pages update to show that patient's data.
+            </p>
+          </section>
+
           {/* Profile */}
           <section className="bg-card rounded-lg border border-border p-5">
             <div className="flex items-center gap-2 mb-4">
               <User className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Patient Profile</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Active Patient — {patient.name}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -119,7 +175,9 @@ const Settings = () => {
                 </select>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">If {patient.name} doesn't answer, Memo will retry once after 30 minutes and notify family contacts.</p>
+            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+              If {patient.name} doesn't answer, Memo will retry once after 30 minutes and notify family contacts.
+            </p>
           </section>
 
           {/* Family Notifications */}

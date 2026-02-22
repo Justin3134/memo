@@ -10,6 +10,16 @@ export type MemoFamilyContext = {
 
 const FAMILY_KEY = "memoFamilyUserId";
 const LOCAL_PATIENT_KEY = "memoLocalPatient";
+const ACTIVE_PATIENT_KEY = "memoActivePatientId";
+
+export const getActivePatientId = (): string | null => {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACTIVE_PATIENT_KEY);
+};
+
+export const setActivePatientId = (id: string) => {
+  if (typeof window !== "undefined") localStorage.setItem(ACTIVE_PATIENT_KEY, id);
+};
 
 export const getDefaultFamilyId = () => {
   if (typeof window === "undefined") {
@@ -86,19 +96,21 @@ export async function upsertPatientFromOnboarding(args: {
   }
 }
 
-export async function triggerCallNow(args: { phone: string; name?: string }) {
+export async function triggerCallNow(args: { phone: string; name?: string; patientId?: string }) {
+  const backendUrl = (import.meta as any).env?.VITE_WEBHOOK_URL ?? "http://localhost:3001";
   let response: Response;
   try {
-    response = await fetch("http://localhost:3001/call-now", {
+    response = await fetch(`${backendUrl}/call-now`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         phoneNumber: args.phone.trim(),
         name: args.name?.trim() || "Patient",
+        patientId: args.patientId,
       }),
     });
   } catch {
-    throw new Error("Cannot reach local backend at http://localhost:3001/call-now.");
+    throw new Error(`Cannot reach backend at ${backendUrl}/call-now. Make sure the server is running.`);
   }
 
   if (!response.ok) {

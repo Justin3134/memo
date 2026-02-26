@@ -8,18 +8,17 @@ import {
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
-// Handle Vapi/MiniMax transcripts in any format
 const parseLines = (t: string) => {
   if (!t?.trim()) return [];
   return t.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
     const lower = l.toLowerCase();
-    if (lower.startsWith("ai:") || lower.startsWith("assistant:") || lower.startsWith("bot:") || lower.startsWith("memo:"))
+    if (/^(ai|assistant|bot|memo)\s*:/i.test(lower))
       return { role: "ai" as const, text: l.replace(/^[^:]+:\s*/i, "").trim() };
-    if (lower.startsWith("user:") || lower.startsWith("patient:") || lower.startsWith("human:"))
+    if (/^(user|patient|human)\s*:/i.test(lower))
       return { role: "user" as const, text: l.replace(/^[^:]+:\s*/i, "").trim() };
-    if (lower.startsWith("[speaker_0") || lower.startsWith("[assistant"))
+    if (/^\[speaker_0/i.test(lower) || /^\[assistant/i.test(lower))
       return { role: "ai" as const, text: l.replace(/^\[[^\]]+\]:\s*/i, "").trim() };
-    if (lower.startsWith("[speaker_1") || lower.startsWith("[user"))
+    if (/^\[speaker_1/i.test(lower) || /^\[user/i.test(lower))
       return { role: "user" as const, text: l.replace(/^\[[^\]]+\]:\s*/i, "").trim() };
     return { role: "user" as const, text: l };
   });
@@ -87,15 +86,15 @@ export default function Dashboard() {
 
   return (
     <MemoLayout>
-      <div className="flex gap-0 h-full min-h-screen">
+      <div className="flex h-full">
 
-        {/* ── Left column: chart + metrics ── */}
-        <div className="flex-1 min-w-0 p-8 border-r border-border">
+        {/* ── Left column: metrics + chart + call history ── */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-auto">
 
-          {/* Patient header */}
-          <div className="flex items-center justify-between mb-7">
+          {/* Header — no patient name (shown in sidebar) */}
+          <div className="flex items-center justify-between px-8 pt-7 pb-5 border-b border-border">
             <div>
-              <h1 className="text-[17px] font-semibold text-foreground tracking-tight">{patient.name}</h1>
+              <h1 className="text-[15px] font-semibold text-foreground">Overview</h1>
               <p className="text-[12px] text-muted-foreground mt-0.5">
                 {latestCall
                   ? `Last call ${new Date(latestCall.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
@@ -107,34 +106,33 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* Metric row — inline numbers, not cards */}
-          <div className="flex gap-8 mb-7 pb-7 border-b border-border">
+          {/* Metrics row */}
+          <div className="flex items-end gap-10 px-8 py-5 border-b border-border">
             {metrics.map(m => (
               <button key={m.key} onClick={() => setActiveMetric(m.key)} className="text-left group">
-                <p className="text-[11px] text-muted-foreground mb-1">{m.label}</p>
-                <p className={`text-[28px] font-semibold tabular leading-none ${
-                  activeMetric === m.key ? scoreColor(m.value) : "text-foreground/50 group-hover:text-foreground/70"
+                <p className="text-[11px] text-muted-foreground mb-0.5">{m.label}</p>
+                <p className={`text-[26px] font-semibold tabular leading-none ${
+                  activeMetric === m.key ? scoreColor(m.value) : "text-foreground/40 group-hover:text-foreground/60"
                 } transition-colors`}>{m.value}</p>
-                <p className="text-[11px] text-muted-foreground mt-1">{m.sub}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{m.sub}</p>
               </button>
             ))}
-            <div className="ml-auto self-end">
-              <p className="text-[11px] text-muted-foreground">Overall</p>
-              <p className={`text-[28px] font-semibold tabular leading-none ${scoreColor(latestScore)}`}>
-                {Math.round(latestScore)}
+            <div className="ml-auto">
+              <p className="text-[11px] text-muted-foreground mb-0.5">Overall</p>
+              <p className={`text-[26px] font-semibold tabular leading-none ${scoreColor(latestScore)}`}>
+                {Math.round(latestScore)}<span className="text-[13px] text-muted-foreground font-normal">/100</span>
               </p>
-              <p className="text-[11px] text-muted-foreground mt-1">/ 100</p>
             </div>
           </div>
 
           {/* Chart */}
-          <div className="mb-2">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[13px] font-medium text-foreground capitalize">{activeMetric} over time</p>
+          <div className="px-8 pt-5 pb-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[12px] font-medium text-muted-foreground capitalize">{activeMetric} over time</p>
               <div className="flex gap-0.5">
                 {(["cognitive", "motor", "emotional"] as const).map(m => (
                   <button key={m} onClick={() => setActiveMetric(m)}
-                    className={`px-2.5 py-1 text-[12px] rounded-md transition-colors ${
+                    className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
                       activeMetric === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
                     }`}>
                     {m.charAt(0).toUpperCase() + m.slice(1)}
@@ -143,144 +141,74 @@ export default function Dashboard() {
               </div>
             </div>
             {chartData.length < 2 ? (
-              <div className="h-[200px] flex items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">Chart will populate after 2+ calls.</p>
+              <div className="h-[160px] flex items-center">
+                <p className="text-[13px] text-muted-foreground">Chart populates after 2+ calls.</p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={160}>
                 <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                   <defs>
                     <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={metricColor[activeMetric]} stopOpacity={0.12} />
+                      <stop offset="0%" stopColor={metricColor[activeMetric]} stopOpacity={0.1} />
                       <stop offset="100%" stopColor={metricColor[activeMetric]} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(240,6%,93%)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(240,4%,56%)" }} tickLine={false} axisLine={false}
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(240,4%,60%)" }} tickLine={false} axisLine={false}
                     interval={Math.max(0, Math.floor(chartData.length / 5) - 1)} />
-                  <YAxis domain={[40, 100]} tick={{ fontSize: 10, fill: "hsl(240,4%,56%)" }} tickLine={false} axisLine={false} ticks={[40, 55, 70, 85, 100]} />
+                  <YAxis domain={[40, 100]} tick={{ fontSize: 10, fill: "hsl(240,4%,60%)" }} tickLine={false} axisLine={false} ticks={[40, 70, 100]} />
                   <ReferenceLine y={70} stroke="hsl(240,6%,88%)" strokeDasharray="4 2" />
-                  <Tooltip contentStyle={{ fontSize: "12px", borderRadius: "6px", border: "1px solid hsl(240,6%,90%)", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }} />
+                  <Tooltip contentStyle={{ fontSize: "12px", borderRadius: "6px", border: "1px solid hsl(240,6%,90%)", background: "#fff" }} />
                   <Area type="monotone" dataKey={activeMetric} stroke={metricColor[activeMetric]} strokeWidth={1.75} fill="url(#grad)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
-        </div>
 
-        {/* ── Right column: call info + history ── */}
-        <div className="w-[340px] shrink-0 flex flex-col">
-
-          {/* Latest call summary */}
-          <div className="p-6 border-b border-border">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Phone className="w-[13px] h-[13px] text-muted-foreground" strokeWidth={1.75} />
-                <span className="text-[13px] font-medium text-foreground">Latest call</span>
-              </div>
-              {latestCall && (
-                <span className="text-[11px] text-muted-foreground">
-                  {new Date(latestCall.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                  {latestCall.duration ? ` · ${latestCall.duration}s` : ""}
-                </span>
-              )}
-            </div>
-
-            {latestCall ? (
-              <>
-                <p className="text-[13px] text-foreground/80 leading-relaxed mb-3">
-                  {latestCall.summary || "Analysis in progress…"}
-                </p>
-
-                {/* Transcript toggle */}
-                <button
-                  onClick={() => setShowTranscript(v => !v)}
-                  className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showTranscript ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  {showTranscript ? "Hide transcript" : "View transcript"}
-                  {!latestCall.transcript && <span className="text-muted-foreground/50"> (unavailable)</span>}
-                </button>
-
-                {showTranscript && (
-                  <div className="mt-3 max-h-64 overflow-y-auto memo-scrollbar">
-                    {transcriptLines.length > 0 ? (
-                      <div className="space-y-2 pt-1">
-                        {transcriptLines.map((line, i) => (
-                          <div key={i} className="flex gap-2 items-start">
-                            <span className="shrink-0 mt-0.5 text-muted-foreground/60">
-                              {line.role === "ai"
-                                ? <Bot className="w-3 h-3" />
-                                : <User className="w-3 h-3" />}
-                            </span>
-                            <p className="text-[12px] leading-relaxed text-foreground/70">{line.text}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-2">
-                        {latestCall.transcript ? (
-                          <p className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-wrap">
-                            {latestCall.transcript}
-                          </p>
-                        ) : (
-                          <p className="text-[12px] text-muted-foreground">
-                            Transcript not yet available. It will appear here after the next call completes.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-[13px] text-muted-foreground">No calls recorded yet.</p>
-            )}
-          </div>
-
-          {/* Call history */}
-          <div className="flex-1 overflow-auto">
-            <div className="px-6 py-3.5 border-b border-border">
+          {/* Call history — under chart */}
+          <div className="border-t border-border flex-1">
+            <div className="px-8 py-3 border-b border-border">
               <p className="text-[12px] font-medium text-muted-foreground">Call history</p>
             </div>
             {calls.length === 0 ? (
-              <p className="px-6 py-4 text-[13px] text-muted-foreground">No history yet.</p>
+              <p className="px-8 py-4 text-[13px] text-muted-foreground">No calls yet.</p>
             ) : (
               <div className="divide-y divide-border">
-                {calls.slice(0, 10).map(call => (
+                {calls.slice(0, 12).map(call => (
                   <div key={call._id}>
                     <button
                       onClick={() => setExpandedCallId(expandedCallId === call._id ? null : call._id)}
-                      className="w-full px-6 py-3 flex items-center gap-3 hover:bg-accent/50 transition-colors text-left"
+                      className="w-full px-8 py-2.5 flex items-center gap-3 hover:bg-[#F5F5F5] transition-colors text-left"
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                         (call.cognitiveScore ?? 70) >= 75 ? "bg-memo-green" :
                         (call.cognitiveScore ?? 70) >= 60 ? "bg-memo-amber" : "bg-memo-red"
                       }`} />
                       <span className="text-[13px] text-foreground/70 flex-1">
-                        {new Date(call.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                       </span>
-                      <span className={`text-[13px] tabular font-medium ${scoreColor(call.cognitiveScore ?? 70)}`}>
+                      {call.duration && (
+                        <span className="text-[11px] text-muted-foreground">{call.duration}s</span>
+                      )}
+                      <span className={`text-[13px] tabular font-medium w-8 text-right ${scoreColor(call.cognitiveScore ?? 70)}`}>
                         {Math.round(call.cognitiveScore ?? 70)}
                       </span>
                       {expandedCallId === call._id
-                        ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                        : <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                        ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                       }
                     </button>
                     {expandedCallId === call._id && (
-                      <div className="px-6 pb-3">
-                        {call.summary ? (
-                          <p className="text-[12px] text-muted-foreground leading-relaxed">{call.summary}</p>
-                        ) : (
-                          <p className="text-[12px] text-muted-foreground">No summary.</p>
+                      <div className="px-8 pb-3 pt-1">
+                        {call.summary && (
+                          <p className="text-[12px] text-muted-foreground leading-relaxed mb-2">{call.summary}</p>
                         )}
                         {call.transcript && (
-                          <details className="mt-2">
-                            <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground">
+                          <details>
+                            <summary className="text-[11px] text-muted-foreground cursor-pointer hover:text-foreground select-none">
                               View transcript
                             </summary>
-                            <div className="mt-2 max-h-40 overflow-y-auto memo-scrollbar space-y-1.5">
+                            <div className="mt-2 max-h-40 overflow-y-auto memo-scrollbar space-y-1.5 pl-2 border-l border-border">
                               {parseLines(call.transcript).map((line, i) => (
                                 <div key={i} className="flex gap-2 items-start">
                                   <span className="shrink-0 mt-0.5 text-muted-foreground/50">
@@ -299,21 +227,83 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* Memories strip */}
+        {/* ── Right column: latest call + memories ── */}
+        <div className="w-[300px] shrink-0 border-l border-border flex flex-col overflow-auto">
+
+          {/* Latest call */}
+          <div className="p-6 border-b border-border">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1.5">
+                <Phone className="w-[12px] h-[12px] text-muted-foreground" strokeWidth={1.75} />
+                <span className="text-[12px] font-medium text-muted-foreground">Latest call</span>
+              </div>
+              {latestCall && (
+                <span className="text-[11px] text-muted-foreground">
+                  {new Date(latestCall.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {latestCall.duration ? ` · ${latestCall.duration}s` : ""}
+                </span>
+              )}
+            </div>
+
+            {latestCall ? (
+              <>
+                <p className="text-[13px] text-foreground/80 leading-relaxed mb-3">
+                  {latestCall.summary || "Analysis in progress…"}
+                </p>
+                <button
+                  onClick={() => setShowTranscript(v => !v)}
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showTranscript ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {showTranscript ? "Hide transcript" : "View transcript"}
+                  {!latestCall.transcript && <span className="opacity-50"> (unavailable)</span>}
+                </button>
+
+                {showTranscript && (
+                  <div className="mt-3 max-h-56 overflow-y-auto memo-scrollbar pl-1">
+                    {transcriptLines.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {transcriptLines.map((line, i) => (
+                          <div key={i} className="flex gap-2 items-start">
+                            <span className="shrink-0 mt-0.5 text-muted-foreground/50">
+                              {line.role === "ai" ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                            </span>
+                            <p className="text-[12px] leading-relaxed text-foreground/70">{line.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[12px] text-foreground/60 leading-relaxed whitespace-pre-wrap">
+                        {latestCall.transcript || "Transcript unavailable for this call."}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-[13px] text-muted-foreground">No calls recorded yet.</p>
+            )}
+          </div>
+
+          {/* Memories */}
           {memories.length > 0 && (
-            <div className="border-t border-border">
-              <div className="px-6 py-3.5 border-b border-border">
-                <p className="text-[12px] font-medium text-muted-foreground">Recent memories</p>
+            <div className="flex-1">
+              <div className="px-6 py-3 border-b border-border">
+                <p className="text-[12px] font-medium text-muted-foreground">Memories</p>
               </div>
               <div className="divide-y divide-border">
-                {memories.slice(0, 4).map((m, i) => (
+                {memories.slice(0, 8).map((m, i) => (
                   <div key={i} className="px-6 py-3 flex gap-2.5 items-start">
-                    <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                    <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
                       m.sentiment === "positive" ? "bg-memo-green" :
                       m.sentiment === "negative" ? "bg-memo-red" : "bg-foreground/20"
                     }`} />
-                    <p className="text-[12px] text-foreground/70 leading-relaxed">{m.content}</p>
+                    <div className="min-w-0">
+                      <p className="text-[12px] text-foreground/70 leading-relaxed">{m.content}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 capitalize">{m.category}</p>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -161,25 +161,24 @@ export default function HealthSignals() {
             )}
           </div>
 
-          {/* Alerts */}
+          {/* Active alerts */}
           {alerts.length > 0 && (
             <div className="px-8 py-5 border-b border-border">
-              <p className="text-[11px] font-medium text-muted-foreground mb-3 uppercase tracking-wide">Alerts</p>
+              <p className="text-[11px] font-medium text-muted-foreground mb-3 uppercase tracking-wide">
+                Alerts
+                {alerts.filter(a => !dismissed.has(a._id)).length === 0 && alerts.length > 0 && (
+                  <span className="ml-2 normal-case font-normal text-memo-green">all reviewed</span>
+                )}
+              </p>
+
+              {/* Active (not reviewed) */}
               <div className="space-y-2.5">
-                {alerts.slice(0, 6).map(alert => {
-                  const isDismissed = dismissed.has(alert._id);
+                {alerts.slice(0, 6).filter(a => !dismissed.has(a._id)).map(alert => {
                   const label = signalLabel(alert.signalType ?? "");
                   const summary = shortSummary(alert.description ?? "");
                   const quotes = alert.evidenceQuotes ?? [];
-
                   return (
-                    <div
-                      key={alert._id}
-                      className={`rounded-lg border border-border bg-white transition-all duration-500 ${
-                        isDismissed ? "opacity-25 blur-[1.5px] saturate-0" : ""
-                      }`}
-                    >
-                      {/* Alert header row */}
+                    <div key={alert._id} className="rounded-lg border border-border bg-white">
                       <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${severityDot(alert.severity)}`} />
                         <span className="text-[13px] font-medium text-foreground capitalize flex-1">{label}</span>
@@ -190,13 +189,9 @@ export default function HealthSignals() {
                           {alert.severity}
                         </span>
                       </div>
-
-                      {/* Finding */}
                       <div className="px-4 pb-2">
                         <p className="text-[12px] text-foreground/80 leading-relaxed">{summary}</p>
                       </div>
-
-                      {/* Evidence quotes */}
                       {quotes.length > 0 && (
                         <div className="mx-4 mb-3 pl-2.5 border-l-2 border-border">
                           {quotes.slice(0, 2).map((q, i) => (
@@ -204,8 +199,6 @@ export default function HealthSignals() {
                           ))}
                         </div>
                       )}
-
-                      {/* Actions */}
                       <div className="flex items-center gap-2 px-4 pb-3 border-t border-border/50 pt-2.5">
                         <button
                           onClick={() => navigate(`/care?signal=${alert.signalType}&desc=${encodeURIComponent(alert.description ?? "")}`)}
@@ -214,26 +207,43 @@ export default function HealthSignals() {
                           <ArrowUpRight className="w-3 h-3" /> Find care
                         </button>
                         <div className="flex-1" />
-                        {isDismissed ? (
-                          <button
-                            onClick={() => toggleDismiss(alert._id)}
-                            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                          >
-                            <RotateCcw className="w-2.5 h-2.5" /> restore
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => toggleDismiss(alert._id)}
-                            className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                          >
-                            mark reviewed
-                          </button>
-                        )}
+                        <button
+                          onClick={() => toggleDismiss(alert._id)}
+                          className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                        >
+                          mark reviewed
+                        </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Reviewed — at the bottom, subtle */}
+              {alerts.slice(0, 6).some(a => dismissed.has(a._id)) && (
+                <div className="mt-4 pt-4 border-t border-border/50">
+                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide mb-2">Reviewed</p>
+                  <div className="space-y-1.5">
+                    {alerts.slice(0, 6).filter(a => dismissed.has(a._id)).map(alert => (
+                      <div key={alert._id} className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-muted/40">
+                        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 shrink-0" />
+                        <span className="text-[12px] text-muted-foreground/60 capitalize flex-1">
+                          {signalLabel(alert.signalType ?? "")}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/50">
+                          {new Date(alert.timestamp ?? 0).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                        <button
+                          onClick={() => toggleDismiss(alert._id)}
+                          className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

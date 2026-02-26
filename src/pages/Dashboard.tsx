@@ -127,18 +127,8 @@ export default function Dashboard() {
 
           {/* Chart */}
           <div className="px-8 pt-5 pb-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3">
               <p className="text-[12px] font-medium text-muted-foreground capitalize">{activeMetric} over time</p>
-              <div className="flex gap-0.5">
-                {(["cognitive", "motor", "emotional"] as const).map(m => (
-                  <button key={m} onClick={() => setActiveMetric(m)}
-                    className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
-                      activeMetric === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-                    }`}>
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </button>
-                ))}
-              </div>
             </div>
             {chartData.length < 2 ? (
               <div className="h-[160px] flex items-center">

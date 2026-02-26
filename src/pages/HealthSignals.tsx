@@ -1,43 +1,21 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Check, Quote, MessageSquare, MapPin } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
+import { ArrowRight } from "lucide-react";
 
-type Severity = "high" | "medium" | "low";
+const severityDot = (s: string) =>
+  s === "high" ? "bg-memo-red" : s === "medium" ? "bg-memo-amber" : "bg-memo-green";
 
-const severityStyle = (s: string) => {
-  if (s === "high") return "bg-memo-red/10 text-memo-red";
-  if (s === "medium") return "bg-memo-amber/10 text-memo-amber";
-  return "bg-memo-green/10 text-memo-green";
-};
+const severityText = (s: string) =>
+  s === "high" ? "text-memo-red" : s === "medium" ? "text-memo-amber" : "text-memo-green";
 
-const Sparkline = ({ data, color }: { data: number[]; color: string }) => {
-  if (data.length < 2) return <span className="text-[9px] text-muted-foreground">No trend yet</span>;
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const w = 80; const h = 20;
-  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
-  return <svg width={w} height={h}><polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} /></svg>;
-};
-
-const HealthSignals = () => {
+export default function HealthSignals() {
   const navigate = useNavigate();
-  const { loading, error, patient, calls, alerts, memories } = useMemoDashboardData();
+  const { loading, patient, calls, alerts, memories } = useMemoDashboardData();
   const [reviewedIds, setReviewedIds] = useState<string[]>([]);
-  const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-
-  const handleFindCare = (signal: string, description: string) => {
-    const params = new URLSearchParams({
-      signal,
-      description: description.slice(0, 200),
-    });
-    navigate(`/find-care?${params.toString()}`);
-  };
 
   const sortedCalls = useMemo(() => [...calls].sort((a, b) => a.startedAt - b.startedAt), [calls]);
 
@@ -45,242 +23,212 @@ const HealthSignals = () => {
     const baseline = patient?.baseline?.cognitiveScore ?? 70;
     return sortedCalls.slice(-30).map((call, index) => {
       const score = Math.max(40, Math.min(100, Math.round(call.cognitiveScore ?? baseline)));
-      return {
-        index,
-        call,
-        date: new Date(call.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        score,
-        status: score < 55 ? "alert" : score < 70 ? "watch" : "ok",
-      };
+      return { index, call, date: new Date(call.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }), score,
+               status: score < 55 ? "alert" : score < 70 ? "watch" : "ok" };
     });
   }, [sortedCalls, patient?.baseline?.cognitiveScore]);
 
   const selectedCall = selectedDay !== null ? timeline[selectedDay]?.call : null;
+  const latestCall = calls[0];
 
-  const signalSections = useMemo(() => {
-    const r = sortedCalls.slice(-30);
+  const signalCharts = useMemo(() => {
+    const r = sortedCalls.slice(-20);
     return [
-      { title: "Speech Rate", data: r.map((c, i) => ({ day: i + 1, value: Math.round(c.speechRate ?? 130) })), interpretation: "Speech rate trend from recent calls. Lower values may indicate slowing." },
-      { title: "Pause Frequency", data: r.map((c, i) => ({ day: i + 1, value: Math.round((c.pauseFrequency ?? 3.1) * 10) / 10 })), interpretation: "Pause frequency per minute. Increases can indicate word-finding difficulty." },
-      { title: "Response Latency", data: r.map((c, i) => ({ day: i + 1, value: Math.round((c.responseLatency ?? 1.7) * 10) })), interpretation: "Response time in tenths of a second. Higher values may indicate fatigue." },
-      { title: "Emotional Tone", data: r.map((c, i) => ({ day: i + 1, value: Math.round(c.emotionalScore ?? 80) })), interpretation: "Emotional tone scored from call sentiment and vocal stability." },
+      { title: "Speech Rate", unit: "wpm", data: r.map((c, i) => ({ i: i + 1, v: Math.round(c.speechRate ?? 130) })) },
+      { title: "Pause Frequency", unit: "/min", data: r.map((c, i) => ({ i: i + 1, v: +(c.pauseFrequency ?? 3.1).toFixed(1) })) },
+      { title: "Emotional Tone", unit: "/100", data: r.map((c, i) => ({ i: i + 1, v: Math.round(c.emotionalScore ?? 80) })) },
     ];
   }, [sortedCalls]);
 
-  if (loading) return <MemoLayout><div className="max-w-4xl mx-auto animate-fade-in-up"><p className="text-sm text-muted-foreground">Loading health signals...</p></div></MemoLayout>;
-  if (error) return <MemoLayout><div className="max-w-4xl mx-auto animate-fade-in-up"><p className="text-sm text-memo-red">Unable to load health signals: {error}</p></div></MemoLayout>;
+  const unreviewedAlerts = alerts.filter(a => !reviewedIds.includes(a._id));
+
+  if (loading) return (
+    <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Loading signals…</div></MemoLayout>
+  );
 
   if (!patient) return (
     <MemoLayout>
-      <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
-        <h1 className="text-lg font-display text-foreground tracking-tight">Health Signals</h1>
-        <p className="text-[11px] text-muted-foreground">No patient found. Register one to populate live signals.</p>
-        <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">Register a patient</Link>
+      <div className="p-8">
+        <h1 className="text-xl font-semibold mb-2">Signals</h1>
+        <p className="text-[13px] text-muted-foreground mb-4">No patient found.</p>
+        <Link to="/onboarding" className="text-[13px] font-medium text-foreground underline underline-offset-2">Register a patient</Link>
       </div>
     </MemoLayout>
   );
 
-  const latestCall = calls[0];
-
   return (
     <MemoLayout>
-      <div className="max-w-4xl mx-auto animate-fade-in-up">
-        <h1 className="text-lg font-display text-foreground tracking-tight mb-1">Health Signals</h1>
-        <p className="text-[11px] text-muted-foreground mb-4">Live signals for {patient.name} · {calls.length} calls analysed · {memories.length} memories saved</p>
+      <div className="p-8 max-w-4xl animate-fade-in">
 
-        {/* 30-day timeline */}
-        <div className="border border-border rounded-lg p-3 mb-5 bg-card">
-          <div className="flex gap-[2px]">
-            {timeline.map((day) => (
-              <button
-                key={day.index}
-                onClick={() => setSelectedDay(selectedDay === day.index ? null : day.index)}
-                className={`flex-1 h-5 rounded-sm transition-colors ${
-                  day.status === "alert" ? "bg-memo-red" : day.status === "watch" ? "bg-memo-amber" : "bg-foreground/10"
-                } ${selectedDay === day.index ? "ring-1 ring-foreground" : ""}`}
-                title={`${day.date}: ${day.score}`}
-              />
-            ))}
-          </div>
-          <div className="flex justify-between mt-1 text-[9px] text-muted-foreground">
-            <span>{timeline[0]?.date ?? "—"}</span>
-            <span>Today</span>
-          </div>
-
-          {/* Selected day detail */}
-          {selectedDay !== null && timeline[selectedDay] && (
-            <div className="mt-3 pt-3 border-t border-border">
-              <p className="text-[11px] text-muted-foreground mb-2">
-                <span className="font-medium text-foreground">{timeline[selectedDay].date}</span> — Score {timeline[selectedDay].score}/100
-                {timeline[selectedDay].status === "alert" && <span className="ml-2 text-memo-red">Significant deviations detected</span>}
-                {timeline[selectedDay].status === "watch" && <span className="ml-2 text-memo-amber">Minor deviations</span>}
-                {timeline[selectedDay].status === "ok" && <span className="ml-2 text-memo-green">Within baseline</span>}
-              </p>
-              {/* Health mentions from that call */}
-              {selectedCall?.healthMentions && selectedCall.healthMentions.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">What was mentioned</p>
-                  {selectedCall.healthMentions.map((mention, i) => (
-                    <div key={i} className="flex items-start gap-2 py-1">
-                      <MessageSquare className="w-3 h-3 text-muted-foreground mt-0.5 flex-shrink-0" />
-                      <p className="text-[11px] text-foreground">{mention}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+        {/* Header */}
+        <div className="mb-7">
+          <h1 className="text-xl font-semibold text-foreground tracking-tight">Signals</h1>
+          <p className="text-[13px] text-muted-foreground mt-0.5">
+            {patient.name} · {calls.length} calls · {unreviewedAlerts.length > 0 && <span className="text-memo-amber">{unreviewedAlerts.length} unreviewed {unreviewedAlerts.length === 1 ? "alert" : "alerts"}</span>}
+            {unreviewedAlerts.length === 0 && "No active alerts"}
+          </p>
         </div>
 
-        {/* Conversation Signals — quotes from latest call */}
-        {latestCall?.conversationSignals && latestCall.conversationSignals.length > 0 && (
-          <div className="mb-5">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Conversation Signals — {new Date(latestCall.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </p>
-            <div className="space-y-2">
-              {latestCall.conversationSignals.map((sig, i) => (
-                <div key={i} className="border border-border rounded-lg bg-card p-3.5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Quote className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-                    <span className="text-[10px] font-semibold text-foreground uppercase tracking-wide">{sig.signal}</span>
+        {/* Active alerts */}
+        {unreviewedAlerts.length > 0 && (
+          <div className="mb-6 space-y-2">
+            {unreviewedAlerts.map(alert => (
+              <div key={alert._id} className="bg-white border border-border rounded-lg p-4 flex gap-4 items-start">
+                <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${severityDot(alert.severity)}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[12px] font-medium capitalize ${severityText(alert.severity)}`}>
+                      {alert.severity}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground">·</span>
+                    <span className="text-[12px] text-muted-foreground capitalize">
+                      {(alert.signalType ?? "").replace(/_/g, " ")}
+                    </span>
+                    <span className="ml-auto text-[11px] text-muted-foreground">
+                      {new Date(alert.timestamp ?? 0).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
                   </div>
-                  <blockquote className="border-l-2 border-foreground/20 pl-3 mb-2">
-                    <p className="text-[12px] text-foreground italic leading-relaxed">"{sig.quote}"</p>
-                  </blockquote>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{sig.explanation}</p>
+                  <p className="text-[13px] text-foreground leading-relaxed">{alert.description}</p>
+                  {alert.evidenceQuotes?.[0] && (
+                    <p className="text-[12px] text-muted-foreground mt-1.5 italic">"{alert.evidenceQuotes[0]}"</p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => navigate(`/care?signal=${alert.signalType}&desc=${encodeURIComponent(alert.description ?? "")}`)}
+                    className="flex items-center gap-1 text-[12px] text-foreground/70 hover:text-foreground transition-colors"
+                  >
+                    Find care <ArrowRight className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => setReviewedIds(ids => [...ids, alert._id])}
+                    className="text-[12px] text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded border border-border"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 30-day heatmap */}
+        {timeline.length > 0 && (
+          <div className="bg-white border border-border rounded-lg p-5 mb-6">
+            <p className="text-[13px] font-medium text-foreground mb-3">30-day cognitive heatmap</p>
+            <div className="flex gap-[3px]">
+              {timeline.map(day => (
+                <button
+                  key={day.index}
+                  onClick={() => setSelectedDay(selectedDay === day.index ? null : day.index)}
+                  title={`${day.date}: ${day.score}/100`}
+                  className={`flex-1 h-6 rounded-sm transition-colors ${
+                    day.status === "alert" ? "bg-memo-red/80" :
+                    day.status === "watch" ? "bg-memo-amber/70" : "bg-foreground/8"
+                  } ${selectedDay === day.index ? "ring-1 ring-offset-1 ring-foreground" : "hover:opacity-80"}`}
+                  style={{ backgroundColor: day.status === "ok" ? `hsl(142, 60%, ${88 - (day.score - 70) * 0.8}%)` : undefined }}
+                />
+              ))}
+            </div>
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[11px] text-muted-foreground">{timeline[0]?.date}</span>
+              <span className="text-[11px] text-muted-foreground">Today</span>
+            </div>
+            {selectedDay !== null && timeline[selectedDay] && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[13px] font-medium text-foreground">{timeline[selectedDay].date}</span>
+                  <span className="text-[13px] text-muted-foreground">Score {timeline[selectedDay].score}/100</span>
+                  {timeline[selectedDay].status !== "ok" && (
+                    <span className={`text-[12px] ${timeline[selectedDay].status === "alert" ? "text-memo-red" : "text-memo-amber"}`}>
+                      {timeline[selectedDay].status === "alert" ? "Significant changes" : "Minor deviations"}
+                    </span>
+                  )}
+                </div>
+                {selectedCall?.healthMentions && selectedCall.healthMentions.length > 0 && (
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedCall.healthMentions.map((m, i) => (
+                      <span key={i} className="text-[12px] text-muted-foreground bg-muted px-2 py-0.5 rounded-md">{m}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Conversation signals */}
+        {latestCall?.conversationSignals && latestCall.conversationSignals.length > 0 && (
+          <div className="bg-white border border-border rounded-lg mb-6">
+            <div className="px-5 py-3.5 border-b border-border">
+              <p className="text-[13px] font-medium text-foreground">Conversation signals</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                From {new Date(latestCall.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </p>
+            </div>
+            <div className="divide-y divide-border">
+              {latestCall.conversationSignals.map((sig, i) => (
+                <div key={i} className="px-5 py-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[12px] font-medium text-foreground capitalize">{sig.signal.replace(/_/g, " ")}</span>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground italic mb-1">"{sig.quote}"</p>
+                  <p className="text-[13px] text-foreground/70">{sig.explanation}</p>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Active Flags */}
-        <div className="space-y-3 mb-5">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Active Flags</p>
-          {alerts.length === 0 && (
-            <p className="text-[12px] text-muted-foreground">No active flags. All signals within baseline.</p>
-          )}
-          {alerts.map((alert) => {
-            const reviewed = reviewedIds.includes(alert._id);
-            const sparkline = calls.slice(-7).map((c) => c.cognitiveScore ?? patient.baseline?.cognitiveScore ?? 70);
-
-            return (
-              <div key={alert._id} className="border border-border rounded-lg bg-card overflow-hidden">
-                <div className="p-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${severityStyle(alert.severity)}`}>
-                          {alert.severity}
-                        </span>
-                        <span className="text-[13px] font-medium text-foreground">{alert.signalType}</span>
-                      </div>
-
-                      <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">{alert.description}</p>
-
-                      {/* Evidence quotes */}
-                      {alert.evidenceQuotes && alert.evidenceQuotes.length > 0 && (
-                        <div className="space-y-1.5 mb-2">
-                          {alert.evidenceQuotes.map((quote, i) => (
-                            <div key={i} className="flex items-start gap-2 bg-muted/40 rounded-md px-2.5 py-1.5">
-                              <Quote className="w-2.5 h-2.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                              <p className="text-[11px] text-foreground italic leading-relaxed">"{quote}"</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-3 mb-1.5">
-                        <span className="text-[10px] text-muted-foreground">
-                          Score: <span className="font-medium text-foreground">{alert.currentValue}</span>
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          Baseline: <span className="font-medium text-foreground">{alert.baselineValue}</span>
-                        </span>
-                        <Sparkline data={sparkline} color={alert.severity === "high" ? "hsl(0, 72%, 51%)" : "hsl(38, 92%, 50%)"} />
-                      </div>
-                      {alert.recommendedAction && (
-                        <p className="text-[10px] text-muted-foreground">{alert.recommendedAction}</p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={() => setReviewedIds((p) => p.includes(alert._id) ? p.filter((x) => x !== alert._id) : [...p, alert._id])}
-                        className={`px-2.5 py-1.5 text-[11px] font-medium rounded transition-colors ${
-                          reviewed ? "bg-muted text-muted-foreground" : "bg-foreground text-background hover:opacity-90"
-                        }`}
-                      >
-                        {reviewed ? "Reviewed" : "Review"}
-                      </button>
-                      <button
-                        onClick={() => handleFindCare(alert.signalType, alert.description)}
-                        className="px-2.5 py-1.5 text-[11px] font-medium rounded border border-border bg-card text-foreground hover:bg-muted transition-colors flex items-center gap-1 justify-center"
-                      >
-                        <MapPin className="w-3 h-3" /> Find Care
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <AnimatePresence>
-                  {reviewed && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                      <div className="border-t border-border px-3.5 py-3 bg-muted/30">
-                        <p className="text-[11px] flex items-center gap-1 text-muted-foreground">
-                          <Check className="w-3.5 h-3.5" /> Marked as reviewed — {alert.signalType}
-                        </p>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Signal Breakdown Charts */}
-        <div className="space-y-1.5">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Signal Breakdown</p>
-          {signalSections.map((section) => {
-            const isOpen = expandedSection === section.title;
-            return (
-              <div key={section.title} className="border border-border rounded-lg bg-card overflow-hidden">
-                <button
-                  onClick={() => setExpandedSection(isOpen ? null : section.title)}
-                  className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <span className="text-[12px] font-medium text-foreground">{section.title}</span>
-                  {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                </button>
-                {isOpen && (
-                  <div className="px-3 pb-3">
-                    <ResponsiveContainer width="100%" height={140}>
-                      <AreaChart data={section.data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id={`g-${section.title}`} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="hsl(0, 0%, 8%)" stopOpacity={0.06} />
-                            <stop offset="100%" stopColor="hsl(0, 0%, 8%)" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 92%)" vertical={false} />
-                        <XAxis dataKey="day" tick={{ fontSize: 9, fill: "hsl(0, 0%, 50%)" }} tickLine={false} axisLine={false} interval={5} />
-                        <YAxis tick={{ fontSize: 9, fill: "hsl(0, 0%, 50%)" }} tickLine={false} axisLine={false} />
-                        <Tooltip contentStyle={{ fontSize: "11px", borderRadius: "4px", border: "1px solid hsl(0,0%,90%)" }} />
-                        <Area type="monotone" dataKey="value" stroke="hsl(0, 0%, 8%)" strokeWidth={1.5} fill={`url(#g-${section.title})`} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-2">{section.interpretation}</p>
-                  </div>
+        {/* Signal charts */}
+        {signalCharts.some(c => c.data.length >= 2) && (
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            {signalCharts.map(chart => (
+              <div key={chart.title} className="bg-white border border-border rounded-lg p-4">
+                <p className="text-[12px] font-medium text-foreground mb-1">{chart.title}</p>
+                <p className="text-[11px] text-muted-foreground mb-3">{chart.unit}</p>
+                {chart.data.length >= 2 ? (
+                  <ResponsiveContainer width="100%" height={60}>
+                    <AreaChart data={chart.data} margin={{ top: 2, right: 2, left: -30, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={`g-${chart.title}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(240,10%,4%)" stopOpacity={0.08} />
+                          <stop offset="100%" stopColor="hsl(240,10%,4%)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <Area type="monotone" dataKey="v" stroke="hsl(240,10%,4%)" strokeWidth={1.5} fill={`url(#g-${chart.title})`} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">Not enough data</p>
                 )}
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
+
+        {/* Memories */}
+        {memories.length > 0 && (
+          <div className="bg-white border border-border rounded-lg">
+            <div className="px-5 py-3.5 border-b border-border">
+              <p className="text-[13px] font-medium text-foreground">Memories captured</p>
+            </div>
+            <div className="divide-y divide-border">
+              {memories.slice(0, 6).map((m, i) => (
+                <div key={i} className="px-5 py-3 flex gap-3 items-start">
+                  <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                    m.sentiment === "positive" ? "bg-memo-green" :
+                    m.sentiment === "negative" ? "bg-memo-red" : "bg-muted-foreground/40"
+                  }`} />
+                  <p className="text-[13px] text-foreground/80 leading-relaxed flex-1">{m.content}</p>
+                  <span className="text-[11px] text-muted-foreground capitalize shrink-0">{m.category}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </MemoLayout>
   );
-};
-
-export default HealthSignals;
+}

@@ -7,8 +7,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import HealthSignals from "./pages/HealthSignals";
-import CareGuide from "./pages/CareGuide";
-import FindCare from "./pages/FindCare";
+import PatientGraph from "./pages/PatientGraph";
+import Care from "./pages/Care";
 import Settings from "./pages/Settings";
 import Onboarding from "./pages/Onboarding";
 import NotFound from "./pages/NotFound";
@@ -29,8 +29,11 @@ const App = () => (
             <Route path="/" element={<Landing />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/health-signals" element={<HealthSignals />} />
-            <Route path="/care-guide" element={<CareGuide />} />
-            <Route path="/find-care" element={<FindCare />} />
+            <Route path="/patient-graph" element={<PatientGraph />} />
+            <Route path="/care" element={<Care />} />
+            {/* Legacy redirects */}
+            <Route path="/find-care" element={<Care />} />
+            <Route path="/care-guide" element={<Care />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="*" element={<NotFound />} />

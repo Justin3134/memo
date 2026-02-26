@@ -6,13 +6,11 @@ interface MemoLayoutProps {
 
 export function MemoLayout({ children }: MemoLayoutProps) {
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-screen w-full bg-[#F8F8F8]">
       <MemoSidebar />
-      <div className="flex-1 flex flex-col min-h-screen">
-        <main className="flex-1 p-6 overflow-auto">
-          {children}
-        </main>
-      </div>
+      <main className="flex-1 min-h-screen overflow-auto">
+        {children}
+      </main>
     </div>
   );
 }

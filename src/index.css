@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,124 +7,92 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 0 0% 8%;
+    --foreground: 240 10% 4%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 8%;
+    --card-foreground: 240 10% 4%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 8%;
+    --popover-foreground: 240 10% 4%;
 
-    --primary: 0 0% 8%;
+    --primary: 240 10% 4%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 20%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 10% 20%;
 
-    --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 45%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
 
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 8%;
+    --accent: 240 5% 95%;
+    --accent-foreground: 240 10% 4%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 8%;
-
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 240 10% 4%;
     --radius: 0.5rem;
 
-    /* Memo tokens */
-    --memo-teal: 0 0% 8%;
-    --memo-teal-light: 0 0% 96%;
-    --memo-teal-dark: 0 0% 4%;
-    --memo-slate: 0 0% 98%;
-    --memo-warm: 0 0% 97%;
-    --memo-amber: 38 92% 50%;
-    --memo-amber-light: 38 50% 95%;
+    --memo-green: 142 69% 38%;
+    --memo-green-light: 142 60% 96%;
+    --memo-amber: 38 90% 48%;
+    --memo-amber-light: 38 80% 96%;
     --memo-red: 0 72% 51%;
-    --memo-red-light: 0 50% 96%;
-    --memo-green: 142 71% 45%;
-    --memo-green-light: 142 40% 95%;
+    --memo-red-light: 0 60% 97%;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 20%;
-    --sidebar-primary: 0 0% 8%;
+    --sidebar-background: 240 5% 98%;
+    --sidebar-foreground: 240 10% 4%;
+    --sidebar-primary: 240 10% 4%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 94%;
-    --sidebar-accent-foreground: 0 0% 8%;
-    --sidebar-border: 0 0% 91%;
-    --sidebar-ring: 0 0% 8%;
-
-    --font-display: 'DM Serif Display', serif;
-    --font-body: 'DM Sans', sans-serif;
+    --sidebar-accent: 240 5% 93%;
+    --sidebar-accent-foreground: 240 10% 4%;
+    --sidebar-border: 240 6% 91%;
+    --sidebar-ring: 240 10% 4%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-body);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: "cv11", "ss01";
-    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  h1, h2, h3 {
-    font-family: var(--font-display);
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
     letter-spacing: -0.02em;
+    font-weight: 600;
   }
 
   input, select, textarea {
-    font-family: var(--font-body);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-
-  button {
-    transition: all 0.15s ease;
+    font-family: inherit;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
   }
 }
 
-@keyframes gauge-fill {
-  from { stroke-dashoffset: 283; }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes pulse-live {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.15); }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
-@keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+.animate-fade-in { animation: fade-in 0.25s ease-out forwards; }
+.animate-pulse-live { animation: pulse-dot 2s ease-in-out infinite; }
 
-.animate-gauge-fill {
-  animation: gauge-fill 1.5s ease-out forwards;
-}
+.memo-scrollbar::-webkit-scrollbar { width: 4px; }
+.memo-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.memo-scrollbar::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 999px; }
 
-.animate-pulse-live {
-  animation: pulse-live 2s ease-in-out infinite;
-}
-
-.animate-fade-in-up {
-  animation: fade-in-up 0.4s ease-out forwards;
-}
-
-.memo-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.memo-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.memo-scrollbar::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 999px;
-}
+/* Score number font */
+.tabular { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }

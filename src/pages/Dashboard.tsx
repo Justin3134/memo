@@ -1,165 +1,133 @@
 import { useMemo, useState } from "react";
-import { Phone, ArrowRight, Eye, EyeOff, User, Bot, ChevronDown, ChevronRight, Clock } from "lucide-react";
+import { Phone, ChevronDown, ChevronRight, User, Bot, Eye, EyeOff, Link as LinkIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Area,
-  AreaChart,
-  ComposedChart,
-  ReferenceLine,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Area, AreaChart, ReferenceLine,
 } from "recharts";
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
-const parseTranscriptLines = (transcript: string) => {
-  return transcript
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      if (line.startsWith("AI:")) return { role: "ai" as const, text: line.slice(3).trim() };
-      if (line.startsWith("User:")) return { role: "user" as const, text: line.slice(5).trim() };
-      return { role: "user" as const, text: line };
-    });
-};
+const parseLines = (t: string) =>
+  t.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+    if (l.startsWith("AI:")) return { role: "ai" as const, text: l.slice(3).trim() };
+    if (l.startsWith("User:")) return { role: "user" as const, text: l.slice(5).trim() };
+    return { role: "user" as const, text: l };
+  });
 
-const Dashboard = () => {
+const scoreColor = (s: number) =>
+  s >= 75 ? "text-memo-green" : s >= 60 ? "text-memo-amber" : "text-memo-red";
+
+const scoreLabel = (s: number) =>
+  s >= 75 ? "Stable" : s >= 60 ? "Watch" : "Alert";
+
+export default function Dashboard() {
   const [activeMetric, setActiveMetric] = useState<"cognitive" | "motor" | "emotional">("cognitive");
   const [showTranscript, setShowTranscript] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const { loading, error, patient, calls, memories } = useMemoDashboardData();
 
-  const chartData = useMemo(() => {
-    return [...calls]
-      .sort((a, b) => a.startedAt - b.startedAt)
-      .map((call) => ({
-        date: new Date(call.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        cognitive: Math.round(
-          call.cognitiveScore ??
-            patient?.baseline?.cognitiveScore ??
-            (call.status === "completed" ? 72 : 70),
-        ),
-        motor: Math.round(call.motorScore ?? patient?.baseline?.motorScore ?? 70),
-        emotional: Math.round(call.emotionalScore ?? patient?.baseline?.emotionalScore ?? 70),
-      }));
-  }, [calls, patient?.baseline]);
+  const chartData = useMemo(() =>
+    [...calls].sort((a, b) => a.startedAt - b.startedAt).map(c => ({
+      date: new Date(c.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      cognitive: Math.round(c.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70),
+      motor: Math.round(c.motorScore ?? patient?.baseline?.motorScore ?? 70),
+      emotional: Math.round(c.emotionalScore ?? patient?.baseline?.emotionalScore ?? 70),
+    })), [calls, patient?.baseline]);
 
-  const latestCall = useMemo(() => calls[0] ?? null, [calls]);
+  const latestCall = calls[0] ?? null;
   const latestScore = latestCall?.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70;
-  const statusLabel = latestScore >= 75 ? "Stable" : latestScore >= 60 ? "Watch" : "Alert";
-  const statusColor =
-    latestScore >= 75
-      ? "bg-memo-green text-background"
-      : latestScore >= 60
-      ? "bg-memo-amber text-background"
-      : "bg-memo-red text-background";
 
-  const lastCallSummary = latestCall?.summary ?? "No call summary available yet.";
-  const lastCallTimeLabel = latestCall
-    ? `${new Date(latestCall.startedAt).toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-      })} · ${(latestCall.duration ?? 0)}s`
-    : "No call logged yet";
+  if (loading) return (
+    <MemoLayout>
+      <div className="p-8 text-[13px] text-muted-foreground">Loading dashboard…</div>
+    </MemoLayout>
+  );
 
-  const metricCards = [
-    {
-      label: "Cognitive",
-      score: Math.round(latestCall?.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 0),
-      sub: latestCall?.speechRate
-        ? `Speech rate: ${Math.round(latestCall.speechRate)} wpm`
-        : "Waiting for a completed call",
-    },
-    {
-      label: "Motor",
-      score: Math.round(latestCall?.motorScore ?? patient?.baseline?.motorScore ?? 0),
-      sub: latestCall?.pauseFrequency
-        ? `Pause frequency: ${latestCall.pauseFrequency.toFixed(1)}/min`
-        : "Motor trend needs at least one analysis",
-    },
-    {
-      label: "Emotional",
-      score: Math.round(latestCall?.emotionalScore ?? patient?.baseline?.emotionalScore ?? 0),
-      sub: memories[0]
-        ? `Latest memory: ${memories[0].category} · ${memories[0].sentiment}`
-        : "Collecting emotional baseline",
-    },
+  if (!patient) return (
+    <MemoLayout>
+      <div className="p-8 max-w-2xl">
+        <h1 className="text-xl font-semibold text-foreground mb-1">Dashboard</h1>
+        <p className="text-[13px] text-muted-foreground mb-6">No patient profile found. Set one up to get started.</p>
+        <Link to="/onboarding"
+          className="inline-flex items-center gap-1.5 text-[13px] font-medium bg-foreground text-background px-4 py-2 rounded-md hover:bg-foreground/90 transition-colors">
+          Register a patient
+        </Link>
+      </div>
+    </MemoLayout>
+  );
+
+  const metrics = [
+    { key: "cognitive" as const, label: "Cognitive", value: Math.round(latestCall?.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 0), detail: latestCall?.speechRate ? `${Math.round(latestCall.speechRate)} wpm` : "—" },
+    { key: "motor" as const, label: "Motor", value: Math.round(latestCall?.motorScore ?? patient?.baseline?.motorScore ?? 0), detail: latestCall?.pauseFrequency ? `${latestCall.pauseFrequency.toFixed(1)} pauses/min` : "—" },
+    { key: "emotional" as const, label: "Emotional", value: Math.round(latestCall?.emotionalScore ?? patient?.baseline?.emotionalScore ?? 0), detail: memories[0] ? memories[0].sentiment : "—" },
   ];
 
-  if (loading) {
-    return (
-      <MemoLayout>
-        <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4 text-sm text-muted-foreground">
-          Loading live dashboard data...
-        </div>
-      </MemoLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <MemoLayout>
-        <div className="max-w-4xl mx-auto animate-fade-in-up">
-          <p className="text-sm text-memo-red">Unable to load live data: {error}</p>
-        </div>
-      </MemoLayout>
-    );
-  }
-
-  if (!patient) {
-    return (
-      <MemoLayout>
-        <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-display text-foreground tracking-tight">Dashboard</h1>
-              <p className="text-[11px] text-muted-foreground">Framework mode: no patient profile yet.</p>
-            </div>
-            <span className="px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground">Setup Needed</span>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            {["Cognitive", "Motor", "Emotional"].map((label) => (
-              <div key={label} className="border border-border rounded-lg p-3 bg-card">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
-                <p className="text-xl font-display text-foreground">--<span className="text-[11px] text-muted-foreground font-body">/100</span></p>
-                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">No live data yet.</p>
-              </div>
-            ))}
-          </div>
-          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
-            Register a patient
-          </Link>
-        </div>
-      </MemoLayout>
-    );
-  }
+  const metricColors: Record<string, string> = {
+    cognitive: "hsl(240,10%,4%)",
+    motor: "hsl(215,70%,50%)",
+    emotional: "hsl(142,69%,38%)",
+  };
 
   return (
     <MemoLayout>
-      <div className="max-w-4xl mx-auto animate-fade-in-up space-y-4">
+      <div className="p-8 max-w-4xl animate-fade-in">
+
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-lg font-display text-foreground tracking-tight">{patient.name}</h1>
-            <p className="text-[11px] text-muted-foreground">{lastCallTimeLabel}</p>
+            <h1 className="text-xl font-semibold text-foreground tracking-tight">{patient.name}</h1>
+            <p className="text-[13px] text-muted-foreground mt-0.5">
+              {latestCall
+                ? `Last call ${new Date(latestCall.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
+                : "No calls yet"}
+            </p>
           </div>
-          <span className={`px-2.5 py-1 rounded text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>{statusLabel}</span>
+          <div className="flex items-center gap-2.5">
+            <span className={`text-[13px] font-medium tabular ${scoreColor(latestScore)}`}>
+              {Math.round(latestScore)}/100
+            </span>
+            <span className={`text-[12px] px-2 py-0.5 rounded-full border ${
+              latestScore >= 75
+                ? "border-memo-green/30 text-memo-green bg-memo-green/5"
+                : latestScore >= 60
+                ? "border-memo-amber/30 text-memo-amber bg-memo-amber/5"
+                : "border-memo-red/30 text-memo-red bg-memo-red/5"
+            }`}>
+              {scoreLabel(latestScore)}
+            </span>
+          </div>
         </div>
 
-        {/* Main Chart */}
-        <div className="border border-border rounded-lg p-4 bg-card">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Cognitive Stability Index — 30 Days</p>
-            <div className="flex gap-0.5">
-              {(["cognitive", "motor", "emotional"] as const).map((m) => (
+        {/* Score row */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {metrics.map(m => (
+            <button
+              key={m.key}
+              onClick={() => setActiveMetric(m.key)}
+              className={`text-left p-4 bg-white border rounded-lg transition-all ${
+                activeMetric === m.key ? "border-foreground/20 shadow-sm" : "border-border hover:border-foreground/10"
+              }`}
+            >
+              <p className="text-[12px] text-muted-foreground mb-2">{m.label}</p>
+              <p className={`text-3xl font-semibold tabular ${scoreColor(m.value)}`}>{m.value}</p>
+              <p className="text-[12px] text-muted-foreground mt-1">{m.detail}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Chart */}
+        <div className="bg-white border border-border rounded-lg p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[13px] font-medium text-foreground">
+              {activeMetric.charAt(0).toUpperCase() + activeMetric.slice(1)} trend
+            </p>
+            <div className="flex gap-1">
+              {(["cognitive", "motor", "emotional"] as const).map(m => (
                 <button
                   key={m}
                   onClick={() => setActiveMetric(m)}
-                  className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  className={`px-2.5 py-1 text-[12px] rounded-md transition-colors ${
                     activeMetric === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -168,217 +136,138 @@ const Dashboard = () => {
               ))}
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(0, 0%, 8%)" stopOpacity={0.08} />
-                  <stop offset="100%" stopColor="hsl(0, 0%, 8%)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 92%)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 9, fill: "hsl(0, 0%, 50%)" }} tickLine={false} axisLine={false} interval={5} />
-              <YAxis domain={[40, 100]} tick={{ fontSize: 9, fill: "hsl(0, 0%, 50%)" }} tickLine={false} axisLine={false} />
-              <ReferenceLine y={70} stroke="hsl(0, 0%, 80%)" strokeDasharray="4 4" label={{ value: "Baseline", position: "right", fontSize: 9, fill: "hsl(0, 0%, 60%)" }} />
-              <Tooltip contentStyle={{ fontSize: "11px", borderRadius: "4px", border: "1px solid hsl(0,0%,90%)", background: "hsl(0,0%,100%)" }} />
-              <Area type="monotone" dataKey={activeMetric} stroke="hsl(0, 0%, 8%)" strokeWidth={1.5} fill="url(#areaGrad)" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Three Metric Cards */}
-        <div className="grid grid-cols-3 gap-3">
-          {metricCards.map((m) => (
-            <div key={m.label} className="border border-border rounded-lg p-3 bg-card">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{m.label}</p>
-              <p className="text-xl font-display text-foreground">{m.score}<span className="text-[11px] text-muted-foreground font-body">/100</span></p>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{m.sub}</p>
+          {chartData.length < 2 ? (
+            <div className="h-[180px] flex items-center justify-center text-[13px] text-muted-foreground">
+              Not enough data yet — more calls will populate this chart.
             </div>
-          ))}
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={metricColors[activeMetric]} stopOpacity={0.1} />
+                    <stop offset="100%" stopColor={metricColors[activeMetric]} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240,6%,93%)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(240,4%,56%)" }} tickLine={false} axisLine={false} interval={Math.max(1, Math.floor(chartData.length / 6))} />
+                <YAxis domain={[40, 100]} tick={{ fontSize: 11, fill: "hsl(240,4%,56%)" }} tickLine={false} axisLine={false} ticks={[40,55,70,85,100]} />
+                <ReferenceLine y={70} stroke="hsl(240,6%,85%)" strokeDasharray="4 2" />
+                <Tooltip
+                  contentStyle={{ fontSize: "12px", borderRadius: "6px", border: "1px solid hsl(240,6%,90%)", background: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}
+                  labelStyle={{ color: "hsl(240,4%,46%)", marginBottom: 2 }}
+                />
+                <Area type="monotone" dataKey={activeMetric} stroke={metricColors[activeMetric]} strokeWidth={1.75} fill="url(#grad)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        {/* Latest Call */}
-        <div className="border border-border rounded-lg p-4 bg-card">
-          <div className="flex items-center gap-2 mb-2">
-            <Phone className="w-3.5 h-3.5 text-foreground" />
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Latest Call</p>
-            <span className="ml-auto text-[11px] text-muted-foreground">{lastCallTimeLabel}</span>
-          </div>
-          <p className="text-[13px] text-foreground leading-relaxed mb-3">
-            {lastCallSummary}
-          </p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {[
-              { label: "Pause Freq", value: `${latestCall?.pauseFrequency?.toFixed(1) ?? "-"}/min`, baseline: `${patient?.baseline?.pauseFrequency?.toFixed(1) ?? "-"}`, warn: !!latestCall && latestCall.pauseFrequency ? latestCall.pauseFrequency > (patient?.baseline?.pauseFrequency ?? 0) + 1.0 : false },
-              { label: "Speech Rate", value: `${Math.round(latestCall?.speechRate ?? 0)} wpm`, baseline: `${Math.round(patient?.baseline?.speechRate ?? 0)}`, warn: false },
-              { label: "Latency", value: `${latestCall?.responseLatency?.toFixed(1) ?? "-"} s`, baseline: `${patient?.baseline?.responseLatency?.toFixed(1) ?? "-"}`, warn: false },
-            ].map((m) => (
-              <span key={m.label} className={`px-2 py-1 rounded text-[10px] font-medium ${m.warn ? "bg-memo-amber/10 text-memo-amber" : "bg-muted text-muted-foreground"}`}>
-                {m.label}: {m.value} vs {m.baseline}
-              </span>
-            ))}
-          </div>
-
-          {/* Transcript toggle */}
-          {latestCall?.transcript && (
-            <div className="mb-3">
-              <button
-                onClick={() => setShowTranscript((v) => !v)}
-                className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showTranscript ? <><EyeOff className="w-3.5 h-3.5" /> Hide conversation</> : <><Eye className="w-3.5 h-3.5" /> View conversation</>}
-              </button>
-              {showTranscript && (
-                <div className="mt-3 border border-border rounded-lg overflow-hidden">
-                  <div className="bg-muted/40 px-3 py-2 flex items-center justify-between border-b border-border">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Conversation transcript</p>
-                    <p className="text-[10px] text-muted-foreground">{latestCall.duration ?? 0}s</p>
-                  </div>
-                  <div className="p-3 space-y-2.5 max-h-72 overflow-y-auto">
-                    {parseTranscriptLines(latestCall.transcript).map((line, i) => (
-                      <div key={i} className={`flex gap-2 ${line.role === "ai" ? "" : "flex-row-reverse"}`}>
-                        <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${line.role === "ai" ? "bg-foreground/10" : "bg-primary/10"}`}>
-                          {line.role === "ai" ? <Bot className="w-2.5 h-2.5 text-foreground/60" /> : <User className="w-2.5 h-2.5 text-primary/60" />}
-                        </div>
-                        <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${line.role === "ai" ? "bg-muted text-foreground rounded-tl-none" : "bg-primary/10 text-foreground rounded-tr-none"}`}>
-                          {line.text}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        {/* Latest call summary */}
+        {latestCall && (
+          <div className="bg-white border border-border rounded-lg p-5 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Phone className="w-[14px] h-[14px] text-muted-foreground" strokeWidth={1.75} />
+                <span className="text-[13px] font-medium text-foreground">Latest call</span>
+                <span className="text-[12px] text-muted-foreground">
+                  {new Date(latestCall.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {latestCall.duration ? ` · ${latestCall.duration}s` : ""}
+                </span>
+              </div>
+              {latestCall.transcript && (
+                <button
+                  onClick={() => setShowTranscript(v => !v)}
+                  className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showTranscript ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {showTranscript ? "Hide" : "Transcript"}
+                </button>
               )}
             </div>
-          )}
+            <p className="text-[13px] text-foreground leading-relaxed">
+              {latestCall.summary || "Analysis in progress…"}
+            </p>
 
-          <Link to="/health-signals" className="flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
-            View Health Signals <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-
-        {/* All Conversations */}
-        {calls.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">All Conversations</p>
-              <span className="text-[10px] text-muted-foreground">{calls.length} call{calls.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="space-y-2">
-              {calls.map((call) => {
-                const isOpen = expandedCallId === call._id;
-                const cogScore = call.cognitiveScore ?? null;
-                const scoreColor = cogScore === null ? "text-muted-foreground" : cogScore >= 75 ? "text-memo-green" : cogScore >= 60 ? "text-memo-amber" : "text-memo-red";
-                const callDate = new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-                const callTime = new Date(call.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-                return (
-                  <div key={call._id} className="border border-border rounded-lg bg-card overflow-hidden">
-                    <button
-                      onClick={() => setExpandedCallId(isOpen ? null : call._id)}
-                      className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/30 transition-colors"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-secondary flex-shrink-0 flex items-center justify-center">
-                        <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <p className="text-[12px] font-medium text-foreground">{callDate}</p>
-                          <span className="text-[10px] text-muted-foreground">{callTime}</span>
-                          {call.anomalyDetected && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-memo-amber/10 text-memo-amber font-semibold">Signal detected</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground truncate pr-4">
-                          {call.summary ?? "Call completed — analysis pending."}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        {cogScore !== null && (
-                          <span className={`text-[12px] font-semibold ${scoreColor}`}>{Math.round(cogScore)}</span>
-                        )}
-                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          {call.duration ?? 0}s
-                        </div>
-                        {isOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                      </div>
-                    </button>
-
-                    {isOpen && (
-                      <div className="border-t border-border px-4 py-4 space-y-4">
-                        {/* Summary */}
-                        {call.summary && (
-                          <p className="text-[13px] text-foreground leading-relaxed">{call.summary}</p>
-                        )}
-
-                        {/* Metrics row */}
-                        <div className="flex flex-wrap gap-2">
-                          {cogScore !== null && (
-                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
-                              Cognitive: {Math.round(cogScore)}
-                            </span>
-                          )}
-                          {call.emotionalScore != null && (
-                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
-                              Emotional: {Math.round(call.emotionalScore)}
-                            </span>
-                          )}
-                          {call.motorScore != null && (
-                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
-                              Motor: {Math.round(call.motorScore)}
-                            </span>
-                          )}
-                          {call.speechRate != null && (
-                            <span className="px-2 py-1 rounded text-[10px] font-medium bg-muted text-muted-foreground">
-                              Speech: {Math.round(call.speechRate)} wpm
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Health mentions */}
-                        {call.healthMentions && call.healthMentions.length > 0 && (
-                          <div>
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Health mentions</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {call.healthMentions.map((m, i) => (
-                                <span key={i} className="px-2 py-0.5 rounded-full bg-secondary text-[11px] text-muted-foreground">{m}</span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Transcript */}
-                        {call.transcript && (
-                          <div className="border border-border rounded-lg overflow-hidden">
-                            <div className="bg-muted/40 px-3 py-2 flex items-center justify-between border-b border-border">
-                              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Transcript</p>
-                              <p className="text-[10px] text-muted-foreground">{call.duration ?? 0}s</p>
-                            </div>
-                            <div className="p-3 space-y-2.5 max-h-64 overflow-y-auto">
-                              {parseTranscriptLines(call.transcript).map((line, i) => (
-                                <div key={i} className={`flex gap-2 ${line.role === "ai" ? "" : "flex-row-reverse"}`}>
-                                  <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${line.role === "ai" ? "bg-foreground/10" : "bg-primary/10"}`}>
-                                    {line.role === "ai" ? <Bot className="w-2.5 h-2.5 text-foreground/60" /> : <User className="w-2.5 h-2.5 text-primary/60" />}
-                                  </div>
-                                  <div className={`max-w-[80%] px-3 py-1.5 rounded-lg text-[12px] leading-relaxed ${line.role === "ai" ? "bg-muted text-foreground rounded-tl-none" : "bg-primary/10 text-foreground rounded-tr-none"}`}>
-                                    {line.text}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
+            {showTranscript && latestCall.transcript && (
+              <div className="mt-4 border-t border-border pt-4 max-h-52 overflow-y-auto memo-scrollbar space-y-1.5">
+                {parseLines(latestCall.transcript).map((line, i) => (
+                  <div key={i} className="flex gap-2 items-start">
+                    <span className="shrink-0 mt-0.5">
+                      {line.role === "ai"
+                        ? <Bot className="w-3 h-3 text-muted-foreground" />
+                        : <User className="w-3 h-3 text-foreground/60" />
+                      }
+                    </span>
+                    <p className="text-[12px] leading-relaxed text-foreground/80">{line.text}</p>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Call history */}
+        {calls.length > 1 && (
+          <div className="bg-white border border-border rounded-lg">
+            <div className="px-5 py-3.5 border-b border-border">
+              <p className="text-[13px] font-medium text-foreground">Call history</p>
+            </div>
+            <div className="divide-y divide-border">
+              {calls.slice(0, 8).map(call => (
+                <div key={call._id} className="px-5 py-3">
+                  <button
+                    onClick={() => setExpandedCallId(expandedCallId === call._id ? null : call._id)}
+                    className="w-full flex items-center gap-3 text-left"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      (call.cognitiveScore ?? 70) >= 75 ? "bg-memo-green" :
+                      (call.cognitiveScore ?? 70) >= 60 ? "bg-memo-amber" : "bg-memo-red"
+                    }`} />
+                    <span className="text-[13px] text-foreground flex-1">
+                      {new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </span>
+                    <span className={`text-[13px] tabular font-medium ${scoreColor(call.cognitiveScore ?? 70)}`}>
+                      {Math.round(call.cognitiveScore ?? 70)}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground w-16 text-right">
+                      {call.duration ? `${call.duration}s` : "—"}
+                    </span>
+                    {expandedCallId === call._id
+                      ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                      : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                    }
+                  </button>
+                  {expandedCallId === call._id && call.summary && (
+                    <p className="mt-2 ml-5 text-[12px] text-muted-foreground leading-relaxed">
+                      {call.summary}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+        {/* Memories strip */}
+        {memories.length > 0 && (
+          <div className="mt-6 bg-white border border-border rounded-lg p-5">
+            <p className="text-[13px] font-medium text-foreground mb-3">Recent memories</p>
+            <div className="space-y-2">
+              {memories.slice(0, 3).map((m, i) => (
+                <div key={i} className="flex gap-3 items-start">
+                  <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                    m.sentiment === "positive" ? "bg-memo-green" : m.sentiment === "negative" ? "bg-memo-red" : "bg-muted-foreground/40"
+                  }`} />
+                  <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
+                  <span className="ml-auto shrink-0 text-[11px] text-muted-foreground capitalize">{m.category}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </MemoLayout>
   );
-};
-
-export default Dashboard;
+}

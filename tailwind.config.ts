@@ -14,8 +14,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        display: ["'DM Serif Display'", "serif"],
-        body: ["'DM Sans'", "sans-serif"],
+        sans: ["'Inter'", "-apple-system", "BlinkMacSystemFont", "'Segoe UI'", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

@@ -181,11 +181,26 @@ export default function PatientGraph() {
                 </div>
               )}
               {error && !loading && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-[13px] text-muted-foreground">Backend unreachable</p>
-                    <p className="text-[12px] text-muted-foreground/60 mt-1">{error}</p>
-                    <p className="text-[12px] text-muted-foreground/60 mt-2">Start the FastAPI server to load the Neo4j graph.</p>
+                <div className="absolute inset-0 flex items-center justify-center p-8">
+                  <div className="text-center max-w-xs">
+                    {error === "500" ? (
+                      <>
+                        <p className="text-[13px] font-medium text-foreground mb-2">Neo4j database unreachable</p>
+                        <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
+                          The Neo4j Aura free tier pauses after inactivity. Resume it at{" "}
+                          <a href="https://console.neo4j.io" target="_blank" rel="noopener noreferrer"
+                            className="underline underline-offset-2 hover:text-foreground">console.neo4j.io</a>
+                          {" "}— it takes about 30 seconds.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[13px] font-medium text-foreground mb-2">Backend not running</p>
+                        <p className="text-[12px] text-muted-foreground leading-relaxed">
+                          Start the FastAPI server: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">cd backend && uvicorn main:app --reload</code>
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

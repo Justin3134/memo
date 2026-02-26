@@ -2,6 +2,7 @@
 import os
 import logging
 from neo4j import GraphDatabase
+from neo4j.exceptions import ServiceUnavailable, AuthError, ClientError
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -11,22 +12,44 @@ _driver = None
 def get_driver():
     global _driver
     if _driver is None:
-        _driver = GraphDatabase.driver(
-            os.environ["NEO4J_URI"],
-            auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"]),
-            connection_timeout=15,
-        )
+        uri = os.environ.get("NEO4J_URI", "")
+        username = os.environ.get("NEO4J_USERNAME", "neo4j")
+        password = os.environ.get("NEO4J_PASSWORD", "")
+        if not uri or not password:
+            raise RuntimeError("NEO4J_URI and NEO4J_PASSWORD must be set in .env")
+        _driver = GraphDatabase.driver(uri, auth=(username, password))
     return _driver
 
 
-def ensure_constraints():
+def verify_connection():
+    """Test Neo4j connectivity and return (ok, message)."""
     try:
-        db = os.environ.get("NEO4J_DATABASE", "neo4j")
+        driver = get_driver()
+        driver.verify_connectivity()
+        return True, "Connected"
+    except AuthError as e:
+        return False, f"Auth failed — check NEO4J_USERNAME and NEO4J_PASSWORD: {e}"
+    except ServiceUnavailable as e:
+        return False, f"Neo4j instance unreachable — it may be paused at console.neo4j.io: {e}"
+    except RuntimeError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Connection error: {e}"
+
+
+def ensure_constraints():
+    ok, msg = verify_connection()
+    if not ok:
+        logger.warning(f"Neo4j unavailable on startup, skipping constraints: {msg}")
+        return
+    try:
+        db = _db()
         with get_driver().session(database=db) as s:
             s.run("CREATE CONSTRAINT patient_id IF NOT EXISTS FOR (p:Patient) REQUIRE p.id IS UNIQUE")
             s.run("CREATE CONSTRAINT call_id IF NOT EXISTS FOR (c:Call) REQUIRE c.id IS UNIQUE")
+        logger.info("Neo4j constraints ready")
     except Exception as e:
-        logger.warning(f"Neo4j constraints skipped (instance may be paused): {e}")
+        logger.warning(f"Neo4j constraints skipped: {e}")
 
 
 def _db():

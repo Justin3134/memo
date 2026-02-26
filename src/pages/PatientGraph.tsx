@@ -109,15 +109,27 @@ export default function PatientGraph() {
   const nodes = useForceGraph(graphData);
   const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-  useEffect(() => {
+  const fetchGraph = async () => {
     if (!patient?._id) return;
-    setLoading(true);
-    fetch(`${BACKEND}/patients/${patient._id}/graph`)
-      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
-      .then(d => { setGraphData(d); setError(null); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [patient?._id]);
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${BACKEND}/patients/${patient._id}/graph`);
+      if (!r.ok) {
+        // Try to extract real error detail from FastAPI response
+        let detail = `${r.status}`;
+        try { const j = await r.json(); detail = j.detail ?? detail; } catch {}
+        throw new Error(detail);
+      }
+      const d = await r.json();
+      setGraphData(d);
+    } catch (e: any) {
+      setError(e.message ?? "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchGraph(); }, [patient?._id]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -182,25 +194,39 @@ export default function PatientGraph() {
               )}
               {error && !loading && (
                 <div className="absolute inset-0 flex items-center justify-center p-8">
-                  <div className="text-center max-w-xs">
-                    {error === "500" ? (
+                  <div className="text-center max-w-sm">
+                    {error.includes("Failed to fetch") || error.includes("NetworkError") || error.includes("ECONNREFUSED") ? (
                       <>
-                        <p className="text-[13px] font-medium text-foreground mb-2">Neo4j database unreachable</p>
+                        <p className="text-[13px] font-medium text-foreground mb-2">Backend not running</p>
                         <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
-                          The Neo4j Aura free tier pauses after inactivity. Resume it at{" "}
+                          Start the FastAPI server:
+                        </p>
+                        <code className="text-[11px] bg-muted px-2 py-1 rounded block mb-3">
+                          cd backend && uvicorn main:app --reload
+                        </code>
+                      </>
+                    ) : error.includes("paused") || error.includes("console.neo4j") || error.includes("ServiceUnavailable") || error.includes("unreachable") ? (
+                      <>
+                        <p className="text-[13px] font-medium text-foreground mb-2">Neo4j instance paused</p>
+                        <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
+                          Resume it at{" "}
                           <a href="https://console.neo4j.io" target="_blank" rel="noopener noreferrer"
-                            className="underline underline-offset-2 hover:text-foreground">console.neo4j.io</a>
-                          {" "}— it takes about 30 seconds.
+                            className="underline underline-offset-2">console.neo4j.io</a>
+                          {" "}(~30 seconds), then retry.
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="text-[13px] font-medium text-foreground mb-2">Backend not running</p>
-                        <p className="text-[12px] text-muted-foreground leading-relaxed">
-                          Start the FastAPI server: <code className="text-[11px] bg-muted px-1.5 py-0.5 rounded">cd backend && uvicorn main:app --reload</code>
-                        </p>
+                        <p className="text-[13px] font-medium text-foreground mb-2">Connection error</p>
+                        <p className="text-[12px] text-muted-foreground leading-relaxed mb-3 break-words">{error}</p>
                       </>
                     )}
+                    <button
+                      onClick={fetchGraph}
+                      className="text-[12px] font-medium text-foreground/70 hover:text-foreground border border-border px-3 py-1.5 rounded-md transition-colors"
+                    >
+                      Retry
+                    </button>
                   </div>
                 </div>
               )}

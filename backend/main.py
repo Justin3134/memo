@@ -35,6 +35,11 @@ class CareSearchRequest(BaseModel):
 @app.get("/health")
 def health(): return {"status": "ok"}
 
+@app.get("/health/neo4j")
+def health_neo4j():
+    ok, msg = neo4j.verify_connection()
+    return {"connected": ok, "message": msg}
+
 @app.post("/analyze")
 async def analyze(req: AnalyzeRequest):
     try:
@@ -54,8 +59,13 @@ def enroll(req: EnrollRequest):
 
 @app.get("/patients/{patient_id}/graph")
 def patient_graph(patient_id: str):
-    try: return neo4j.get_patient_graph(patient_id)
-    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+    ok, msg = neo4j.verify_connection()
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
+    try:
+        return neo4j.get_patient_graph(patient_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/patients/{patient_id}/timeline")
 def patient_timeline(patient_id: str):

@@ -1,267 +1,413 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
-import { useEffect, useState } from "react";
-import { User, Clock, Bell, Mic, Trash2, Volume2, Upload, Check, Plus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, Plus, X, Trash2, Volume2, User, Clock, Bell, ChevronRight } from "lucide-react";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
-import { Link } from "react-router-dom";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { Link, useNavigate } from "react-router-dom";
 
 const voiceModels = [
-  { id: "aria", name: "Aria", desc: "Warm, conversational female voice" },
-  { id: "roger", name: "Roger", desc: "Calm, reassuring male voice" },
-  { id: "sarah", name: "Sarah", desc: "Gentle, friendly female voice" },
-  { id: "charlie", name: "Charlie", desc: "Soft-spoken, patient male voice" },
+  { id: "aria",    name: "Aria",    desc: "Warm, conversational" },
+  { id: "roger",   name: "Roger",   desc: "Calm, reassuring" },
+  { id: "sarah",   name: "Sarah",   desc: "Gentle, friendly" },
+  { id: "charlie", name: "Charlie", desc: "Soft-spoken, patient" },
 ];
 
-const inputClasses = "w-full px-3.5 py-2.5 rounded-md border border-input bg-background text-foreground text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-foreground focus:border-foreground";
+const timezones = [
+  "America/New_York", "America/Chicago", "America/Denver",
+  "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu",
+  "Europe/London", "Europe/Paris", "Asia/Tokyo", "Australia/Sydney",
+];
 
-const Settings = () => {
-  const { loading, error, patient, allPatients, switchPatient } = useMemoDashboardData();
+const input = "w-full px-3 py-2 text-[13px] border border-border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-foreground/20 focus:border-foreground/20 transition-colors placeholder:text-muted-foreground/40";
+const label = "text-[11px] text-muted-foreground mb-1 block";
+
+export default function Settings() {
+  const navigate = useNavigate();
+  const { loading, patient, allPatients, switchPatient } = useMemoDashboardData();
+  const patchPatient = useMutation(api.patients.patch);
+  const deletePatient = useMutation(api.patients.deletePatient);
+
+  // Profile state
+  const [name, setName] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const [emergencyContact, setEmergencyContact] = useState("");
+  const [healthContext, setHealthContext] = useState("");
+
+  // Schedule
   const [callTime, setCallTime] = useState("10:00");
   const [callFreq, setCallFreq] = useState("daily");
+
+  // Voice
   const [selectedVoice, setSelectedVoice] = useState("aria");
+
+  // Family contacts
+  const [contacts, setContacts] = useState<{ name: string; relationship: string }[]>([]);
+  const [addingContact, setAddingContact] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newRelationship, setNewRelationship] = useState("");
+
+  // Save feedback
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!patient) return;
-    setCallTime(patient.memoTime || "10:00");
-    setSelectedVoice(patient.voiceId || "aria");
-  }, [patient]);
+    setName(patient.name ?? "");
+    setTimezone(patient.timezone ?? "");
+    setEmergencyContact(patient.emergencyContact ?? "");
+    setHealthContext(patient.healthContext ?? "");
+    setCallTime(patient.memoTime ?? "10:00");
+    setSelectedVoice(patient.voiceId ?? "aria");
+    setContacts(patient.knownPeople ?? []);
+  }, [patient?._id]);
 
-  if (loading) {
-    return (
-      <MemoLayout>
-        <div className="max-w-3xl mx-auto animate-fade-in-up">
-          <p className="text-sm text-muted-foreground">Loading patient settings...</p>
-        </div>
-      </MemoLayout>
-    );
-  }
+  const flashSaved = (key: string) => {
+    setSaved(s => ({ ...s, [key]: true }));
+    setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2000);
+  };
 
-  if (error) {
-    return (
-      <MemoLayout>
-        <div className="max-w-3xl mx-auto animate-fade-in-up">
-          <p className="text-sm text-memo-red mb-3">Unable to load settings: {error}</p>
-          <Link to="/onboarding" className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:underline">
-            Register a patient
-          </Link>
-        </div>
-      </MemoLayout>
-    );
-  }
+  const saveProfile = async () => {
+    if (!patient) return;
+    await patchPatient({ patientId: patient._id, name, timezone, emergencyContact, healthContext });
+    flashSaved("profile");
+  };
 
-  if (!patient) {
-    return (
-      <MemoLayout>
-        <div className="max-w-3xl mx-auto animate-fade-in-up space-y-4">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Configuration</p>
-          <h1 className="text-xl font-display text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground">No patient registered yet.</p>
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-medium bg-foreground text-background rounded-md hover:opacity-90"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add a patient
-          </Link>
-        </div>
-      </MemoLayout>
-    );
-  }
+  const saveSchedule = async () => {
+    if (!patient) return;
+    await patchPatient({ patientId: patient._id, memoTime: callTime });
+    flashSaved("schedule");
+  };
 
-  return (
+  const saveVoice = async (v: string) => {
+    if (!patient) return;
+    setSelectedVoice(v);
+    await patchPatient({ patientId: patient._id, voiceId: v });
+    flashSaved("voice");
+  };
+
+  const addContact = async () => {
+    if (!newName.trim() || !newRelationship.trim() || !patient) return;
+    const updated = [...contacts, { name: newName.trim(), relationship: newRelationship.trim() }];
+    setContacts(updated);
+    await patchPatient({ patientId: patient._id, knownPeople: updated });
+    setNewName("");
+    setNewRelationship("");
+    setAddingContact(false);
+    flashSaved("contacts");
+  };
+
+  const removeContact = async (idx: number) => {
+    if (!patient) return;
+    const updated = contacts.filter((_, i) => i !== idx);
+    setContacts(updated);
+    await patchPatient({ patientId: patient._id, knownPeople: updated });
+  };
+
+  const handleDelete = async () => {
+    if (!patient) return;
+    if (!confirm(`Remove ${patient.name} from Memo? This cannot be undone.`)) return;
+    await deletePatient({ patientId: patient._id });
+    navigate("/onboarding");
+  };
+
+  if (loading) return (
+    <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Loading…</div></MemoLayout>
+  );
+
+  if (!patient) return (
     <MemoLayout>
-      <div className="max-w-3xl mx-auto animate-fade-in-up">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Configuration</p>
-        <h1 className="text-xl font-display text-foreground mb-6">Settings</h1>
-
-        <div className="space-y-5">
-
-          {/* All Patients */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <User className="w-3.5 h-3.5 text-muted-foreground" />
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Patients</p>
-              </div>
-              <Link
-                to="/"
-                className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Plus className="w-3 h-3" /> Add patient
-              </Link>
-            </div>
-
-            {allPatients.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground">No patients registered yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {allPatients.map((p) => {
-                  const isActive = p._id === patient._id;
-                  return (
-                    <button
-                      key={p._id}
-                      onClick={() => switchPatient(p._id)}
-                      className={`w-full text-left flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-all ${
-                        isActive
-                          ? "border-foreground bg-foreground/[0.03]"
-                          : "border-border hover:border-foreground/30 hover:bg-muted/20"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-[11px] font-semibold text-muted-foreground flex-shrink-0">
-                          {p.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-[13px] font-medium text-foreground">{p.name}</p>
-                          <p className="text-[11px] text-muted-foreground">{p.phoneNumber} · {p.timezone}</p>
-                        </div>
-                      </div>
-                      {isActive && (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold text-foreground flex-shrink-0">
-                          <Check className="w-3 h-3" /> Active
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-              Click a patient to switch the active view. All pages update to show that patient's data.
-            </p>
-          </section>
-
-          {/* Profile */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <User className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Active Patient — {patient.name}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Full Name</label>
-                <input type="text" value={patient.name} readOnly className={inputClasses} />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Phone</label>
-                <input type="tel" value={patient.phoneNumber} readOnly className={inputClasses} />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Timezone</label>
-                <input type="text" value={patient.timezone || "Not set"} readOnly className={inputClasses} />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Emergency Contact</label>
-                <input type="text" value={patient.emergencyContact || "Not set"} readOnly className={inputClasses} />
-              </div>
-            </div>
-          </section>
-
-          {/* Call Schedule */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Call Schedule</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Call Time</label>
-                <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)} className={inputClasses} />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">Frequency</label>
-                <select value={callFreq} onChange={e => setCallFreq(e.target.value)} className={inputClasses}>
-                  <option value="daily">Daily</option>
-                  <option value="weekdays">Weekdays Only</option>
-                  <option value="every-other">Every Other Day</option>
-                </select>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-              If {patient.name} doesn't answer, Memo will retry once after 30 minutes and notify family contacts.
-            </p>
-          </section>
-
-          {/* Family Notifications */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Bell className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Family Notifications</p>
-            </div>
-            <div className="space-y-2">
-              {patient.knownPeople && patient.knownPeople.length > 0 ? (
-                patient.knownPeople.map((f, i) => (
-                  <div key={`${f.name}-${i}`} className="flex items-center justify-between border border-border rounded-md p-3 hover:bg-muted/20 transition-colors">
-                    <div>
-                      <p className="text-[13px] font-medium text-foreground">{f.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{f.relationship} · Family contact</p>
-                    </div>
-                    <p className="text-[11px] font-medium text-muted-foreground">Known contact</p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-[11px] text-muted-foreground">No family contacts added yet.</p>
-              )}
-            </div>
-            <button className="text-[12px] text-muted-foreground font-medium hover:text-foreground mt-3 transition-colors">+ Add family member</button>
-          </section>
-
-          {/* Voice Model */}
-          <section className="bg-card rounded-lg border border-border p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Mic className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Call Voice</p>
-            </div>
-            <p className="text-[11px] text-muted-foreground mb-3">Select a pre-built voice model, or upload a custom recording.</p>
-            <div className="grid grid-cols-2 gap-2.5">
-              {voiceModels.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setSelectedVoice(v.id)}
-                  className={`text-left border rounded-md p-3.5 transition-all duration-150 group ${
-                    selectedVoice === v.id
-                      ? "border-foreground bg-foreground/[0.03] shadow-sm"
-                      : "border-border hover:border-foreground/30 hover:bg-muted/30"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <Volume2 className={`w-3 h-3 ${selectedVoice === v.id ? "text-foreground" : "text-muted-foreground"}`} />
-                    <p className="text-[12px] font-semibold text-foreground">{v.name}</p>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground leading-snug">{v.desc}</p>
-                </button>
-              ))}
-            </div>
-            <div className="relative my-4 py-1">
-              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-border" />
-              <p className="relative text-[10px] text-muted-foreground bg-card px-3 mx-auto w-fit text-center uppercase tracking-wide">or upload a voice</p>
-            </div>
-            <div
-              className="border border-dashed border-border rounded-lg p-6 text-center hover:border-foreground/30 hover:bg-muted/20 transition-all cursor-pointer group"
-              onClick={() => document.getElementById("voice-upload-settings")?.click()}
-            >
-              <Upload className="w-4 h-4 text-muted-foreground mx-auto mb-1.5 group-hover:text-foreground transition-colors" />
-              <p className="text-[12px] font-medium text-foreground">Drop .mp3 or .wav here</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">or click to browse</p>
-              <input id="voice-upload-settings" type="file" accept=".mp3,.wav,.m4a" className="hidden" onChange={(e) => { if (e.target.files?.[0]) setSelectedVoice("custom"); }} />
-            </div>
-          </section>
-
-          {/* Danger Zone */}
-          <section className="bg-card rounded-lg border border-memo-red/20 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Trash2 className="w-3.5 h-3.5 text-memo-red" />
-              <p className="text-[10px] font-semibold text-memo-red uppercase tracking-wide">Danger Zone</p>
-            </div>
-            <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">
-              Removing {patient.name} will permanently delete all call data, health signals, and reports. This action cannot be undone.
-            </p>
-            <button className="px-3.5 py-2 text-[12px] font-medium rounded-md bg-memo-red text-white hover:opacity-90 transition-opacity active:scale-[0.99]">
-              Remove {patient.name} from Memo
-            </button>
-          </section>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <p className="text-[13px] text-muted-foreground mb-4">No patient enrolled yet.</p>
+          <Link to="/onboarding"
+            className="text-[13px] font-medium bg-foreground text-background px-4 py-2 rounded-md hover:bg-foreground/90 transition-colors">
+            Add patient
+          </Link>
         </div>
       </div>
     </MemoLayout>
   );
-};
 
-export default Settings;
+  return (
+    <MemoLayout>
+      <div className="flex h-full">
+
+        {/* ── Left column ── */}
+        <div className="flex-1 min-w-0 overflow-auto border-r border-border">
+
+          <div className="flex items-center justify-between px-8 pt-7 pb-5 border-b border-border">
+            <div>
+              <h1 className="text-[15px] font-semibold text-foreground">Settings</h1>
+              <p className="text-[12px] text-muted-foreground mt-0.5">{patient.name}</p>
+            </div>
+            {allPatients.length > 1 && (
+              <div className="flex gap-1.5">
+                {allPatients.map(p => (
+                  <button
+                    key={p._id}
+                    onClick={() => switchPatient(p._id)}
+                    title={p.name}
+                    className={`w-7 h-7 rounded-full text-[10px] font-semibold transition-colors ${
+                      p._id === patient._id
+                        ? "bg-foreground text-background"
+                        : "bg-muted text-muted-foreground hover:bg-foreground/10"
+                    }`}
+                  >
+                    {p.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                  </button>
+                ))}
+                <Link to="/onboarding"
+                  className="w-7 h-7 rounded-full bg-muted text-muted-foreground hover:bg-foreground/10 flex items-center justify-center transition-colors"
+                  title="Add patient">
+                  <Plus className="w-3 h-3" />
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <div className="px-8 py-6 space-y-7">
+
+            {/* Profile */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[12px] font-medium text-foreground">Profile</p>
+                <button
+                  onClick={saveProfile}
+                  className="flex items-center gap-1 text-[12px] font-medium text-foreground/70 hover:text-foreground transition-colors"
+                >
+                  {saved.profile ? <><Check className="w-3 h-3 text-memo-green" /> Saved</> : "Save changes"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Full name</label>
+                  <input value={name} onChange={e => setName(e.target.value)} className={input} placeholder="Patient name" />
+                </div>
+                <div>
+                  <label className={label}>Phone</label>
+                  <input value={patient.phoneNumber} readOnly className={`${input} bg-muted/40 cursor-default`} />
+                </div>
+                <div>
+                  <label className={label}>Timezone</label>
+                  <select value={timezone} onChange={e => setTimezone(e.target.value)} className={input}>
+                    <option value="">Select timezone</option>
+                    {timezones.map(tz => (
+                      <option key={tz} value={tz}>{tz.replace("_", " ")}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={label}>Emergency contact</label>
+                  <input value={emergencyContact} onChange={e => setEmergencyContact(e.target.value)} className={input} placeholder="+1 555 000 0000" />
+                </div>
+                <div className="col-span-2">
+                  <label className={label}>Health context <span className="text-muted-foreground/60">(helps Memo ask better questions)</span></label>
+                  <textarea value={healthContext} onChange={e => setHealthContext(e.target.value)} rows={2}
+                    className={`${input} resize-none`} placeholder="e.g. mild memory concerns, takes blood pressure medication, loves gardening" />
+                </div>
+              </div>
+            </section>
+
+            <div className="border-t border-border" />
+
+            {/* Call schedule */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[12px] font-medium text-foreground">Call schedule</p>
+                <button
+                  onClick={saveSchedule}
+                  className="flex items-center gap-1 text-[12px] font-medium text-foreground/70 hover:text-foreground transition-colors"
+                >
+                  {saved.schedule ? <><Check className="w-3 h-3 text-memo-green" /> Saved</> : "Save changes"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={label}>Call time</label>
+                  <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)} className={input} />
+                </div>
+                <div>
+                  <label className={label}>Frequency</label>
+                  <select value={callFreq} onChange={e => setCallFreq(e.target.value)} className={input}>
+                    <option value="daily">Daily</option>
+                    <option value="weekdays">Weekdays only</option>
+                    <option value="every-other">Every other day</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-3">
+                If {patient.name} doesn't answer, Memo will retry after 30 minutes.
+              </p>
+            </section>
+
+            <div className="border-t border-border" />
+
+            {/* Family contacts */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[12px] font-medium text-foreground">Family contacts</p>
+                {saved.contacts && (
+                  <span className="flex items-center gap-1 text-[12px] text-memo-green">
+                    <Check className="w-3 h-3" /> Saved
+                  </span>
+                )}
+              </div>
+
+              {contacts.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {contacts.map((c, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-border rounded-md">
+                      <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center shrink-0">
+                        <span className="text-[10px] font-semibold text-muted-foreground">{c.name[0]}</span>
+                      </div>
+                      <span className="text-[13px] text-foreground flex-1">{c.name}</span>
+                      <span className="text-[11px] text-muted-foreground capitalize">{c.relationship}</span>
+                      <button onClick={() => removeContact(i)} className="text-muted-foreground/40 hover:text-memo-red transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {addingContact ? (
+                <div className="border border-border rounded-md p-3 bg-white space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className={label}>Name</label>
+                      <input
+                        value={newName}
+                        onChange={e => setNewName(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addContact()}
+                        autoFocus
+                        className={input}
+                        placeholder="e.g. Sarah"
+                      />
+                    </div>
+                    <div>
+                      <label className={label}>Relationship</label>
+                      <input
+                        value={newRelationship}
+                        onChange={e => setNewRelationship(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addContact()}
+                        className={input}
+                        placeholder="e.g. Daughter"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addContact}
+                      disabled={!newName.trim() || !newRelationship.trim()}
+                      className="px-3 py-1.5 text-[12px] font-medium bg-foreground text-background rounded-md hover:bg-foreground/90 disabled:opacity-40 transition-colors"
+                    >
+                      Add contact
+                    </button>
+                    <button
+                      onClick={() => { setAddingContact(false); setNewName(""); setNewRelationship(""); }}
+                      className="px-3 py-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingContact(true)}
+                  className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add family member
+                </button>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-3">
+                Family contacts receive alerts when Memo detects a significant change.
+              </p>
+            </section>
+
+            <div className="border-t border-border" />
+
+            {/* Danger zone */}
+            <section>
+              <p className="text-[12px] font-medium text-memo-red mb-3">Danger zone</p>
+              <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">
+                Removing {patient.name} permanently deletes all call data, health signals, and reports.
+              </p>
+              <button
+                onClick={handleDelete}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-medium rounded-md border border-memo-red/30 text-memo-red hover:bg-memo-red hover:text-white transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Remove {patient.name}
+              </button>
+            </section>
+
+          </div>
+        </div>
+
+        {/* ── Right column: voice + quick stats ── */}
+        <div className="w-[260px] shrink-0 overflow-auto">
+
+          {/* Voice */}
+          <div className="p-6 border-b border-border">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[12px] font-medium text-foreground">Call voice</p>
+              {saved.voice && (
+                <span className="flex items-center gap-1 text-[11px] text-memo-green">
+                  <Check className="w-3 h-3" /> Saved
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {voiceModels.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => saveVoice(v.id)}
+                  className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-md border transition-colors ${
+                    selectedVoice === v.id
+                      ? "border-foreground/20 bg-foreground/[0.03]"
+                      : "border-border hover:border-foreground/10 hover:bg-[#F5F5F5]"
+                  }`}
+                >
+                  <Volume2 className={`w-3.5 h-3.5 shrink-0 ${selectedVoice === v.id ? "text-foreground" : "text-muted-foreground"}`} strokeWidth={1.75} />
+                  <div>
+                    <p className="text-[12px] font-medium text-foreground">{v.name}</p>
+                    <p className="text-[11px] text-muted-foreground">{v.desc}</p>
+                  </div>
+                  {selectedVoice === v.id && <Check className="w-3 h-3 text-foreground ml-auto" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick stats */}
+          <div className="p-6">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-4">Patient info</p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-[11px] text-muted-foreground">Phone</p>
+                <p className="text-[13px] text-foreground tabular">{patient.phoneNumber}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Enrolled</p>
+                <p className="text-[13px] text-foreground">
+                  {patient._creationTime ? new Date(patient._creationTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Last call</p>
+                <p className="text-[13px] text-foreground">
+                  {patient.lastCalledAt ? new Date(patient.lastCalledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Never"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Cognitive baseline</p>
+                <p className="text-[13px] text-foreground tabular">
+                  {patient.baseline?.cognitiveScore ? Math.round(patient.baseline.cognitiveScore) : "—"}/100
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </MemoLayout>
+  );
+}

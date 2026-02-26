@@ -187,6 +187,24 @@ export const recalculateBaseline = mutation({
   },
 });
 
+export const patch = mutation({
+  args: {
+    patientId: v.id("patients"),
+    name: v.optional(v.string()),
+    memoTime: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    emergencyContact: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
+    knownPeople: v.optional(v.array(v.object({ name: v.string(), relationship: v.string() }))),
+    healthContext: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { patientId, ...updates } = args;
+    const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+    await ctx.db.patch(patientId, clean);
+  },
+});
+
 export const deletePatient = mutation({
   args: { patientId: v.id("patients") },
   handler: async (ctx, args) => {

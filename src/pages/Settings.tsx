@@ -2,8 +2,7 @@ import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState, useEffect } from "react";
 import { Check, Plus, X, Trash2, Volume2, User, Clock, Bell, ChevronRight } from "lucide-react";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
-import { useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { patchPatient, deletePatientApi } from "@/lib/memoBackend";
 import { Link, useNavigate } from "react-router-dom";
 
 const voiceModels = [
@@ -25,8 +24,14 @@ const label = "text-[11px] text-muted-foreground mb-1 block";
 export default function Settings() {
   const navigate = useNavigate();
   const { loading, patient, allPatients, switchPatient } = useMemoDashboardData();
-  const patchPatient = useMutation(api.patients.patch);
-  const deletePatient = useMutation(api.patients.deletePatient);
+  const doPatch = async (updates: Record<string, any>) => {
+    if (!patient) return;
+    await patchPatient(patient._id, updates);
+  };
+  const doDelete = async () => {
+    if (!patient) return;
+    await deletePatientApi(patient._id);
+  };
 
   // Profile state
   const [name, setName] = useState("");
@@ -68,20 +73,20 @@ export default function Settings() {
 
   const saveProfile = async () => {
     if (!patient) return;
-    await patchPatient({ patientId: patient._id, name, timezone, emergencyContact, healthContext });
+    await doPatch({ name, timezone, emergencyContact, healthContext });
     flashSaved("profile");
   };
 
   const saveSchedule = async () => {
     if (!patient) return;
-    await patchPatient({ patientId: patient._id, memoTime: callTime });
+    await doPatch({ memoTime: callTime });
     flashSaved("schedule");
   };
 
   const saveVoice = async (v: string) => {
     if (!patient) return;
     setSelectedVoice(v);
-    await patchPatient({ patientId: patient._id, voiceId: v });
+    await doPatch({ voiceId: v });
     flashSaved("voice");
   };
 
@@ -89,7 +94,7 @@ export default function Settings() {
     if (!newName.trim() || !newRelationship.trim() || !patient) return;
     const updated = [...contacts, { name: newName.trim(), relationship: newRelationship.trim() }];
     setContacts(updated);
-    await patchPatient({ patientId: patient._id, knownPeople: updated });
+    await doPatch({ knownPeople: updated });
     setNewName("");
     setNewRelationship("");
     setAddingContact(false);
@@ -100,13 +105,13 @@ export default function Settings() {
     if (!patient) return;
     const updated = contacts.filter((_, i) => i !== idx);
     setContacts(updated);
-    await patchPatient({ patientId: patient._id, knownPeople: updated });
+    await doPatch({ knownPeople: updated });
   };
 
   const handleDelete = async () => {
     if (!patient) return;
     if (!confirm(`Remove ${patient.name} from Memo? This cannot be undone.`)) return;
-    await deletePatient({ patientId: patient._id });
+    await doDelete();
     navigate("/onboarding");
   };
 

@@ -1,16 +1,84 @@
-import { convexClient } from "./convexClient";
-import type { ConvexPatient, ConvexCall, ConvexMemory, ConvexAlert } from "./convexClient";
+const API = (import.meta as any).env?.VITE_BACKEND_URL ?? "http://localhost:8000";
 
-export type MemoFamilyContext = {
-  patient: ConvexPatient;
-  calls: ConvexCall[];
-  memories: ConvexMemory[];
-  alerts: ConvexAlert[];
+export type MemoPatient = {
+  _id: string;
+  name: string;
+  phoneNumber: string;
+  familyUserId: string;
+  memoTime: string;
+  timezone: string;
+  consentGiven: boolean;
+  interests?: string[];
+  knownPeople?: { name: string; relationship: string }[];
+  healthContext?: string;
+  voiceId?: string;
+  emergencyContact?: string;
+  emergencyContactName?: string;
+  lastCalledAt?: number;
+  baseline?: {
+    speechRate: number;
+    pauseFrequency: number;
+    responseLatency: number;
+    cognitiveScore: number;
+    emotionalScore: number;
+    motorScore: number;
+    callCount: number;
+    calculatedAt: number;
+  };
 };
 
-const FAMILY_KEY = "memoFamilyUserId";
-const LOCAL_PATIENT_KEY = "memoLocalPatient";
+export type MemoCall = {
+  _id: string;
+  patientId: string;
+  vapiCallId: string;
+  startedAt: number;
+  endedAt?: number;
+  duration?: number;
+  status: string;
+  transcript?: string;
+  summary?: string;
+  speechRate?: number;
+  pauseFrequency?: number;
+  responseLatency?: number;
+  cognitiveScore?: number;
+  emotionalScore?: number;
+  motorScore?: number;
+  healthMentions?: string[];
+  conversationSignals?: Array<{ quote: string; signal: string; explanation: string }>;
+  anomalyDetected?: boolean;
+  videoGuidanceTopic?: string;
+  recordingUrl?: string;
+};
+
+export type MemoMemory = {
+  _id: string;
+  patientId: string;
+  callId: string;
+  timestamp: number;
+  category: string;
+  content: string;
+  entities: string[];
+  sentiment: string;
+};
+
+export type MemoAlert = {
+  _id: string;
+  patientId: string;
+  callId: string;
+  timestamp: number;
+  severity: string;
+  signalType: string;
+  description: string;
+  currentValue: number;
+  baselineValue: number;
+  reviewed: boolean;
+  videoUrl?: string;
+  recommendedAction?: string;
+  evidenceQuotes?: string[];
+};
+
 const ACTIVE_PATIENT_KEY = "memoActivePatientId";
+const FAMILY_KEY = "memoFamilyUserId";
 
 export const getActivePatientId = (): string | null => {
   if (typeof window === "undefined") return null;
@@ -22,10 +90,7 @@ export const setActivePatientId = (id: string) => {
 };
 
 export const getDefaultFamilyId = () => {
-  if (typeof window === "undefined") {
-    return "family-default";
-  }
-
+  if (typeof window === "undefined") return "family-default";
   let existing = localStorage.getItem(FAMILY_KEY);
   if (!existing) {
     existing = `family-${Math.random().toString(36).slice(2, 10)}`;
@@ -46,15 +111,15 @@ export async function upsertPatientFromOnboarding(args: {
   familyMembers: { name: string; phone: string; relationship: string }[];
 }) {
   const familyUserId = getDefaultFamilyId();
-
   const knownPeople = args.familyMembers
-    .filter((member) => member.name.trim() && member.relationship.trim())
-    .map((member) => ({ name: member.name.trim(), relationship: member.relationship.trim() }));
+    .filter((m) => m.name.trim() && m.relationship.trim())
+    .map((m) => ({ name: m.name.trim(), relationship: m.relationship.trim() }));
+  const firstFamilyPhone = args.familyMembers.find((m) => m.phone.trim())?.phone.trim();
 
-  const firstFamilyPhone = args.familyMembers.find((member) => member.phone.trim())?.phone.trim();
-
-  try {
-    const patientId = await convexClient.mutation("patients:create", {
+  const res = await fetch(`${API}/api/patients`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
       name: args.name.trim() || "New Patient",
       phoneNumber: args.phone.trim(),
       familyUserId,
@@ -63,37 +128,12 @@ export async function upsertPatientFromOnboarding(args: {
       consentGiven: true,
       knownPeople,
       emergencyContact: firstFamilyPhone,
-    });
+    }),
+  });
 
-    return patientId;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const missingCreate =
-      message.includes("Could not find public function") && message.includes("patients:create");
-
-    if (!missingCreate) {
-      throw error;
-    }
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem(
-        LOCAL_PATIENT_KEY,
-        JSON.stringify({
-          _id: "local-patient",
-          name: args.name.trim() || "New Patient",
-          phoneNumber: args.phone.trim(),
-          familyUserId,
-          memoTime: args.callTime,
-          timezone: args.timezone || "America/Chicago",
-          consentGiven: true,
-          knownPeople,
-          emergencyContact: firstFamilyPhone,
-        })
-      );
-    }
-
-    return "local-patient";
-  }
+  if (!res.ok) throw new Error("Failed to create patient");
+  const data = await res.json();
+  return data._id as string;
 }
 
 export async function triggerCallNow(args: { phone: string; name?: string; patientId?: string }) {
@@ -117,49 +157,31 @@ export async function triggerCallNow(args: { phone: string; name?: string; patie
     const message = await response.text();
     throw new Error(message || "Failed to trigger immediate call.");
   }
-
   return await response.json();
 }
 
-const fetchPatientsForFamily = async (familyUserId: string) => {
-  try {
-    return await convexClient.query("patients:listForFamily", { familyUserId });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("Could not find public function") && message.includes("patients:listForFamily")) {
-      return [];
-    }
-    throw error;
-  }
-};
+export async function patchPatient(patientId: string, updates: Record<string, any>) {
+  const res = await fetch(`${API}/api/patients/${patientId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update patient");
+  return await res.json();
+}
 
-export async function fetchDashboardData() {
-  const familyUserId = getDefaultFamilyId();
-  const patients = await fetchPatientsForFamily(familyUserId);
-  const patient = patients.length ? patients[0] : null;
-  if (!patient) {
-    return { patient: null, calls: [], memories: [], alerts: [] };
-  }
+export async function deletePatientApi(patientId: string) {
+  const res = await fetch(`${API}/api/patients/${patientId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete patient");
+  return await res.json();
+}
 
-  const [calls, memories, alerts] = await Promise.all([
-    convexClient.query("calls:listForPatient", {
-      patientId: patient._id,
-      limit: 30,
-    }),
-    convexClient.query("memories:getRecent", {
-      patientId: patient._id,
-      limit: 20,
-    }),
-    convexClient.query("alerts:getRecentForPatient", {
-      patientId: patient._id,
-      limit: 20,
-    }),
-  ]);
-
-  return {
-    patient,
-    calls: calls as ConvexCall[],
-    memories: memories as ConvexMemory[],
-    alerts: alerts as ConvexAlert[],
-  };
+export async function patchAlert(alertId: string, updates: Record<string, any>) {
+  const res = await fetch(`${API}/api/alerts/${alertId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update alert");
+  return await res.json();
 }

@@ -1,5 +1,6 @@
-"""Core pipeline: Audio Analysis → Modulate → GLiNER2 → OpenAI → Neo4j → Tavily."""
-import os, json, time, logging
+"""Core pipeline: Audio Analysis → Modulate → GLiNER2 → OpenAI → Neo4j → Yutori."""
+import os, json, time, logging, asyncio
+import httpx
 from openai import OpenAI
 import neo4j_service as neo4j
 import modulate_service as modulate
@@ -76,20 +77,87 @@ RULES: quotes must be verbatim. anomalyDetected=true if score<60 or dropped>15 f
                 "anomalySeverity":None,"anomalyDescription":None,"healthMentions":[],
                 "conversationSignals":[],"memories":[],"videoGuidanceTopic":None,"videoTone":None}
 
+YUTORI_BASE = "https://api.yutori.com/v1"
+YUTORI_POLL_INTERVAL = 3
+YUTORI_MAX_WAIT = 120
+
+RESEARCH_OUTPUT_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Title of the finding"},
+            "url": {"type": "string", "description": "Source URL"},
+            "content": {"type": "string", "description": "Brief excerpt or summary (max 300 chars)"},
+        },
+    },
+}
+
+
+async def _yutori_research(query: str, max_wait: int = YUTORI_MAX_WAIT) -> list[dict]:
+    """Create a Yutori Research task, poll until done, return structured results."""
+    key = os.environ.get("YUTORI_API_KEY")
+    if not key:
+        return []
+    headers = {"X-API-Key": key, "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{YUTORI_BASE}/research/tasks",
+            headers=headers,
+            json={"query": query, "output_schema": RESEARCH_OUTPUT_SCHEMA},
+        )
+        resp.raise_for_status()
+        task = resp.json()
+        task_id = task["task_id"]
+        logger.info(f"Yutori research task created: {task_id}")
+
+        elapsed = 0
+        while elapsed < max_wait:
+            await asyncio.sleep(YUTORI_POLL_INTERVAL)
+            elapsed += YUTORI_POLL_INTERVAL
+            status_resp = await client.get(
+                f"{YUTORI_BASE}/research/tasks/{task_id}",
+                headers=headers,
+            )
+            status_resp.raise_for_status()
+            data = status_resp.json()
+            status = data.get("status")
+            if status == "succeeded":
+                structured = data.get("structured_result")
+                if isinstance(structured, list):
+                    return structured
+                for update in data.get("updates", []):
+                    sr = update.get("structured_result")
+                    if isinstance(sr, list):
+                        return sr
+                return []
+            if status == "failed":
+                logger.error(f"Yutori task {task_id} failed")
+                return []
+        logger.warning(f"Yutori task {task_id} timed out after {max_wait}s")
+        return []
+
+
 def fetch_research(anomaly_type: str) -> list[dict]:
-    key = os.environ.get("TAVILY_API_KEY")
-    if not key: return []
+    key = os.environ.get("YUTORI_API_KEY")
+    if not key:
+        return []
+    query = f"early detection {anomaly_type.replace('_', ' ')} elderly voice cognitive decline clinical research 2025"
     try:
-        from tavily import TavilyClient
-        results = TavilyClient(api_key=key).search(
-            f"early detection {anomaly_type.replace('_',' ')} elderly voice cognitive decline 2024",
-            search_depth="advanced", max_results=3)
-        return [{"title":r.get("title",""),"url":r.get("url",""),
-                 "source":r.get("url","").split("/")[2] if r.get("url") else "",
-                 "excerpt":r.get("content","")[:300],"markers":[anomaly_type]}
-                for r in results.get("results",[])]
+        results = asyncio.run(_yutori_research(query, max_wait=90))
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "source": r.get("url", "").split("/")[2] if r.get("url") else "",
+                "excerpt": r.get("content", "")[:300],
+                "markers": [anomaly_type],
+            }
+            for r in results[:3]
+        ]
     except Exception as e:
-        logger.error(f"Tavily error: {e}"); return []
+        logger.error(f"Yutori error: {e}")
+        return []
 
 async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration: float,
                        patient_name: str = "Patient", baseline: float = 75.0,
@@ -162,7 +230,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
 
-    # Step 5: Tavily — fetch clinical research for anomalies
+    # Step 5: Yutori — fetch clinical research for anomalies
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
         research = fetch_research(analysis["anomalyType"])

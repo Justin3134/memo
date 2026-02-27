@@ -346,20 +346,19 @@ def sync_history(req: SyncHistoryRequest):
         raise HTTPException(500, str(e))
 
 # ---------------------------------------------------------------------------
-# Care / Tavily search
+# Care / Yutori research
 # ---------------------------------------------------------------------------
 
 @app.post("/search/care")
 async def search_care(req: CareSearchRequest):
-    key = os.environ.get("TAVILY_API_KEY")
+    key = os.environ.get("YUTORI_API_KEY")
     if not key:
-        raise HTTPException(400, "TAVILY_API_KEY not set")
-    from tavily import TavilyClient
+        raise HTTPException(400, "YUTORI_API_KEY not set")
     try:
-        q = f"{req.signal_type or ''} {req.query} elderly cognitive care treatment 2024"
-        results = TavilyClient(api_key=key).search(query=q.strip(), search_depth="advanced", max_results=5)
+        q = f"{req.signal_type or ''} {req.query} elderly cognitive care treatment 2025".strip()
+        results = await pipeline._yutori_research(q, max_wait=120)
         return {"results": [{"title": r.get("title", ""), "url": r.get("url", ""),
-                             "content": r.get("content", "")[:400]} for r in results.get("results", [])]}
+                             "content": r.get("content", "")[:400]} for r in results[:5]]}
     except Exception as e:
         raise HTTPException(500, str(e))
 

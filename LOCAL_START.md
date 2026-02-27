@@ -6,7 +6,7 @@ npm install        # first time only
 npm run dev        # http://localhost:5173
 ```
 
-## Terminal 2 — FastAPI Backend (Neo4j + OpenAI + Tavily)
+## Terminal 2 — FastAPI Backend (Neo4j + OpenAI + Yutori)
 ```bash
 cd backend
 pip install -r requirements.txt   # first time only
@@ -44,7 +44,7 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=c6vdmahzBppgyaCXYR7jEcRE1dixYLPmTaYyoZbsJns
 NEO4J_DATABASE=neo4j
 
-TAVILY_API_KEY=tvly-dev-...
+YUTORI_API_KEY=yt_...
 OPENAI_API_KEY=sk-proj-...
 PIONEER_API_KEY=           ← get from gliner.pioneer.ai
 

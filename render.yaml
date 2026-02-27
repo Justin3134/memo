@@ -26,7 +26,7 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: TAVILY_API_KEY
+      - key: YUTORI_API_KEY
         sync: false
       - key: PIONEER_API_KEY
         sync: false

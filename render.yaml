@@ -32,3 +32,16 @@ services:
         sync: false
       - key: MODULATE_API_KEY
         sync: false
+
+  - type: web
+    name: memo-frontend
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_BACKEND_URL
+        value: https://memo-lyux.onrender.com

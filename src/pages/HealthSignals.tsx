@@ -1,9 +1,30 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { XAxis, YAxis, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { ArrowUpRight, RotateCcw } from "lucide-react";
+
+function VoiceMetric({ label, value, unit, status }: { label: string; value: string; unit: string; status: "ok" | "watch" | "warn" | "none" }) {
+  const dot = status === "warn" ? "bg-memo-red" : status === "watch" ? "bg-memo-amber" : status === "ok" ? "bg-memo-green" : "bg-muted-foreground/20";
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+      <span className="text-[12px] text-muted-foreground flex-1">{label}</span>
+      <span className="text-[13px] font-semibold tabular text-foreground">{value}</span>
+      <span className="text-[10px] text-muted-foreground w-6">{unit}</span>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="bg-muted/40 rounded px-2.5 py-1.5">
+      <p className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</p>
+      <p className={`text-[13px] font-semibold tabular ${color ?? "text-foreground"}`}>{value}</p>
+    </div>
+  );
+}
 
 // Map internal signal types to plain English
 const signalLabel = (s: string) => {
@@ -277,11 +298,46 @@ export default function HealthSignals() {
           )}
         </div>
 
-        {/* ── Right: signal charts + memories ── */}
-        <div className="w-[240px] shrink-0 border-l border-border overflow-auto">
+        {/* ── Right: Modulate voice analysis + signal charts + memories ── */}
+        <div className="w-[280px] shrink-0 border-l border-border overflow-auto">
+
+          {/* Modulate Velma-2 voice metrics */}
           <div className="p-6 border-b border-border">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-5">Signal trends</p>
-            <div className="space-y-6">
+            <div className="flex items-center gap-2 mb-4">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Voice Analysis</p>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Modulate Velma-2</span>
+            </div>
+            {latestCall ? (
+              <div className="space-y-3">
+                <VoiceMetric label="Speech Rate" value={latestCall.speechRate ? `${Math.round(latestCall.speechRate)}` : "—"} unit="wpm"
+                  status={latestCall.speechRate ? (latestCall.speechRate < 100 ? "warn" : latestCall.speechRate > 160 ? "watch" : "ok") : "none"} />
+                <VoiceMetric label="Pause Frequency" value={latestCall.pauseFrequency ? latestCall.pauseFrequency.toFixed(1) : "—"} unit="/min"
+                  status={latestCall.pauseFrequency ? (latestCall.pauseFrequency > 8 ? "warn" : latestCall.pauseFrequency > 5 ? "watch" : "ok") : "none"} />
+                <VoiceMetric label="Emotional Score" value={latestCall.emotionalScore ? `${Math.round(latestCall.emotionalScore)}` : "—"} unit="/100"
+                  status={latestCall.emotionalScore ? (latestCall.emotionalScore < 40 ? "warn" : latestCall.emotionalScore < 60 ? "watch" : "ok") : "none"} />
+                <VoiceMetric label="Cognitive Score" value={latestCall.cognitiveScore ? `${Math.round(latestCall.cognitiveScore)}` : "—"} unit="/100"
+                  status={latestCall.cognitiveScore ? (latestCall.cognitiveScore < 55 ? "warn" : latestCall.cognitiveScore < 70 ? "watch" : "ok") : "none"} />
+                <VoiceMetric label="Motor Score" value={latestCall.motorScore ? `${Math.round(latestCall.motorScore)}` : "—"} unit="/100"
+                  status={latestCall.motorScore ? (latestCall.motorScore < 55 ? "warn" : latestCall.motorScore < 70 ? "watch" : "ok") : "none"} />
+
+                <div className="pt-2 border-t border-border/50">
+                  <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wide">Detection</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <MiniStat label="Duration" value={latestCall.duration ? `${Math.round(latestCall.duration)}s` : "—"} />
+                    <MiniStat label="Anomaly" value={latestCall.anomalyDetected ? "Yes" : "No"}
+                      color={latestCall.anomalyDetected ? "text-memo-red" : "text-memo-green"} />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[12px] text-muted-foreground">No calls analysed yet.</p>
+            )}
+          </div>
+
+          {/* Signal trend charts */}
+          <div className="p-6 border-b border-border">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-4">Signal Trends</p>
+            <div className="space-y-5">
               {signalCharts.map(chart => (
                 <div key={chart.title}>
                   <div className="flex items-baseline justify-between mb-1">
@@ -290,10 +346,10 @@ export default function HealthSignals() {
                   </div>
                   {chart.data.length >= 2 ? (
                     <>
-                      <p className="text-[22px] font-semibold tabular text-foreground leading-none mb-1.5">
+                      <p className="text-[20px] font-semibold tabular text-foreground leading-none mb-1.5">
                         {chart.data[chart.data.length - 1]?.v ?? "—"}
                       </p>
-                      <ResponsiveContainer width="100%" height={44}>
+                      <ResponsiveContainer width="100%" height={40}>
                         <AreaChart data={chart.data} margin={{ top: 2, right: 0, left: -32, bottom: 0 }}>
                           <defs>
                             <linearGradient id={`g-${chart.title}`} x1="0" y1="0" x2="0" y2="1">

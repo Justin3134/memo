@@ -1,4 +1,4 @@
-"""Core pipeline: Audio Analysis → Modulate → GLiNER2 → OpenAI → Neo4j → Yutori."""
+"""Core pipeline: Vapi Recording → Modulate Velma-2 → GLiNER2 → OpenAI → Neo4j → Tavily."""
 import os, json, time, logging, asyncio
 import httpx
 from openai import OpenAI
@@ -33,14 +33,33 @@ def extract_entities(transcript: str) -> dict:
     except Exception as e:
         logger.error(f"GLiNER2 error: {e}"); return {}
 
-def analyze_with_openai(transcript: str, duration: float, entities: dict, baseline: float) -> dict:
+def analyze_with_openai(transcript: str, duration: float, entities: dict,
+                        baseline: float, modulate_signals: dict | None = None) -> dict:
     entity_str = json.dumps({k: v for k, v in entities.items() if v}, indent=2) if entities else "(none)"
+
+    modulate_context = ""
+    if modulate_signals and modulate_signals.get("source") == "modulate_velma2":
+        modulate_context = f"""
+MODULATE VELMA-2 VOICE ANALYSIS (real audio signals):
+  Speech Rate: {modulate_signals.get('speech_rate_wpm', 0)} wpm
+  Pause Frequency: {modulate_signals.get('pause_frequency_per_min', 0)}/min
+  Long Pauses (>1.5s): {modulate_signals.get('long_pauses_over_1s', 0)}
+  Dominant Emotion: {modulate_signals.get('dominant_emotion', 'Unknown')}
+  Emotion Breakdown: {json.dumps(modulate_signals.get('emotion_breakdown', {}))}
+  Hesitation Events: {modulate_signals.get('hesitation_events', 0)}
+  Word-Finding Delays: {modulate_signals.get('word_finding_delays', 0)}
+  Fluency Score: {modulate_signals.get('fluency_score', 0)}
+  Vocal Tremor: {modulate_signals.get('vocal_tremor', 'none')}
+  Engagement: {modulate_signals.get('engagement_level', 0)}
+Use these REAL audio measurements to inform your scoring — they are more accurate than transcript-only analysis."""
+
     prompt = f"""You are a clinical speech analysis AI for an elderly care platform.
 Analyze this call and return ONLY valid JSON.
 
 TRANSCRIPT: {transcript[:5000]}
 DURATION: {duration}s | BASELINE COGNITIVE: {baseline}
 ENTITIES DETECTED BY GLiNER2: {entity_str}
+{modulate_context}
 
 Return JSON:
 {{
@@ -164,38 +183,44 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
                        recording_url: str | None = None) -> dict:
     timestamp = int(time.time() * 1000)
 
-    # Step 1: Real audio analysis via Whisper word timestamps (if Vapi recording available)
-    whisper_signals = None
+    # Step 1: Download Vapi recording and send to Modulate Velma-2
+    acoustic_signals = None
     if recording_url:
-        logger.info(f"Analyzing audio via Whisper: {recording_url[:80]}...")
-        whisper_signals = audio_analysis.analyze_recording(recording_url, duration)
-        if whisper_signals and whisper_signals.get("audio_available"):
-            logger.info(f"Whisper audio features: rate={whisper_signals['speech_rate_wpm']}wpm, "
-                        f"pauses={whisper_signals['pause_frequency_per_min']}/min, "
-                        f"fluency={whisper_signals['fluency_score']}, "
-                        f"tremor={whisper_signals['vocal_tremor']}")
-        else:
-            logger.warning("Whisper analysis returned no results, falling back to transcript")
-            whisper_signals = None
+        logger.info(f"Downloading recording: {recording_url[:80]}...")
+        audio_bytes = audio_analysis.download_recording(recording_url)
+        if audio_bytes:
+            ext = audio_analysis.guess_extension(recording_url)
+            filename = f"call_{call_id}{ext}"
+            logger.info(f"Sending {len(audio_bytes)} bytes to Modulate Velma-2...")
+            modulate_result = await modulate.analyze_recording(audio_bytes, filename)
+            if modulate_result and modulate_result.get("utterances"):
+                acoustic_signals = modulate.extract_biomarkers(modulate_result, transcript)
+                logger.info(f"Modulate Velma-2: {acoustic_signals.get('patient_utterance_count', 0)} patient utterances, "
+                            f"dominant emotion={acoustic_signals.get('dominant_emotion')}, "
+                            f"rate={acoustic_signals.get('speech_rate_wpm')}wpm, "
+                            f"fluency={acoustic_signals.get('fluency_score')}")
+            else:
+                logger.warning("Modulate returned no utterances, falling back to transcript")
 
-    # Step 2: GLiNER2 entity extraction + OpenAI cognitive analysis
+    # Step 2: GLiNER2 entity extraction
     entities = extract_entities(transcript)
-    analysis = analyze_with_openai(transcript, duration, entities, baseline)
 
-    # Step 3: Map signals through Modulate ToxMod schema
-    # Real Whisper-derived signals take priority over transcript heuristics
-    if whisper_signals:
-        acoustic_signals = modulate.map_whisper_to_toxmod(whisper_signals)
-        speech_rate = float(whisper_signals["speech_rate_wpm"])
-        pause_freq = float(whisper_signals["pause_frequency_per_min"])
-        hesitations = int(whisper_signals["hesitation_events"])
-        emotional = float(analysis.get("emotionalScore", 70))
+    # Step 3: OpenAI cognitive analysis (fed with Modulate signals for better accuracy)
+    analysis = analyze_with_openai(transcript, duration, entities, baseline,
+                                    modulate_signals=acoustic_signals)
+
+    # Step 4: Build final acoustic signals (Modulate real data or transcript fallback)
+    if acoustic_signals:
+        speech_rate = float(acoustic_signals["speech_rate_wpm"])
+        pause_freq = float(acoustic_signals["pause_frequency_per_min"])
+        hesitations = int(acoustic_signals["hesitation_events"])
+        emotional = float(acoustic_signals.get("emotional_score", analysis.get("emotionalScore", 70)))
     else:
         speech_rate = float(analysis.get("speechRate", 120))
         pause_freq = float(analysis.get("pauseFrequency", 2.0))
         hesitations = int(analysis.get("hesitationCount", 0))
         emotional = float(analysis.get("emotionalScore", 70))
-        acoustic_signals = modulate.analyze_acoustic_signals(
+        acoustic_signals = modulate.transcript_fallback(
             transcript=transcript, duration=duration,
             speech_rate=speech_rate, pause_frequency=pause_freq,
             hesitation_count=hesitations, emotional_score=emotional,
@@ -206,7 +231,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
                 f"tremor={acoustic_signals.get('vocal_tremor')}, "
                 f"engagement={acoustic_signals.get('engagement_level')}")
 
-    # Step 4: Neo4j — write full analysis to knowledge graph
+    # Step 5: Neo4j — write full analysis to knowledge graph
     try:
         neo4j.write_call_analysis(
             patient_id=patient_id, call_id=call_id, duration=duration,
@@ -227,7 +252,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
 
-    # Step 5: Yutori — fetch clinical research for anomalies
+    # Step 6: Fetch clinical research for anomalies
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
         research = await fetch_research(analysis["anomalyType"])

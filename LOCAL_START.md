@@ -49,7 +49,6 @@ OPENAI_API_KEY=sk-proj-...
 PIONEER_API_KEY=           ← get from gliner.pioneer.ai
 
 VITE_BACKEND_URL=http://localhost:8000
-VITE_CONVEX_URL=https://friendly-ostrich-184.convex.cloud
 ```
 
 ---

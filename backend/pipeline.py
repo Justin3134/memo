@@ -1,11 +1,12 @@
 """
-Core pipeline: Vapi → Modulate Velma-2 → GLiNER2 → OpenAI → Reka → Neo4j → Tavily → Senso.
+Core pipeline: Vapi → Modulate Velma-2 → Senso (retrieve) → OpenAI → Reka → Neo4j → Tavily → Senso (index).
 
 The autonomous agent loop:
   OBSERVE  → Vapi + Modulate (collect voice data)
+  REMEMBER → Senso retrieval (past conversation context)
   REASON   → OpenAI + Reka cross-validation (analyze cognition)
   ACT      → Tavily (fetch evidence) + Alerts (notify family)
-  LEARN    → Senso (conversation memory) + Neo4j (knowledge graph)
+  LEARN    → Senso (index new memory) + Neo4j (knowledge graph)
 """
 import os, json, time, logging, asyncio
 import httpx
@@ -20,38 +21,15 @@ import reka_service as reka
 logger = logging.getLogger(__name__)
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
-_gliner = None
-def get_gliner():
-    global _gliner
-    if _gliner is None:
-        try:
-            from gliner2 import GLiNER2
-            _gliner = GLiNER2.from_api() if os.environ.get("PIONEER_API_KEY") else GLiNER2.from_pretrained("fastino/gliner2-base-v1")
-            logger.info("GLiNER2 loaded")
-        except Exception as e:
-            logger.error(f"GLiNER2 failed: {e}")
-    return _gliner
 
-COGNITIVE_LABELS = ["memory_lapse","confusion_indicator","word_finding_difficulty",
-                    "repetition","disorientation","medication_mention","pain_mention",
-                    "loneliness_indicator","emotional_distress","sleep_problem","forgetting_event"]
-
-def extract_entities(transcript: str) -> dict:
-    g = get_gliner()
-    if not g: return {}
-    try:
-        return g.extract_entities(transcript, COGNITIVE_LABELS).get("entities", {})
-    except Exception as e:
-        logger.error(f"GLiNER2 error: {e}"); return {}
-
-def analyze_with_openai(transcript: str, duration: float, entities: dict,
-                        baseline: float, modulate_signals: dict | None = None) -> dict:
-    entity_str = json.dumps({k: v for k, v in entities.items() if v}, indent=2) if entities else "(none)"
+def analyze_with_openai(transcript: str, duration: float,
+                        baseline: float, modulate_signals: dict | None = None,
+                        senso_context: str = "") -> dict:
 
     modulate_context = ""
     if modulate_signals and modulate_signals.get("source") == "modulate_velma2":
         modulate_context = f"""
-MODULATE VELMA-2 VOICE ANALYSIS (real audio signals):
+MODULATE VELMA-2 VOICE ANALYSIS (real acoustic signals from audio):
   Speech Rate: {modulate_signals.get('speech_rate_wpm', 0)} wpm
   Pause Frequency: {modulate_signals.get('pause_frequency_per_min', 0)}/min
   Long Pauses (>1.5s): {modulate_signals.get('long_pauses_over_1s', 0)}
@@ -64,13 +42,20 @@ MODULATE VELMA-2 VOICE ANALYSIS (real audio signals):
   Engagement: {modulate_signals.get('engagement_level', 0)}
 Use these REAL audio measurements to inform your scoring — they are more accurate than transcript-only analysis."""
 
+    memory_context = ""
+    if senso_context:
+        memory_context = f"""
+CONVERSATION HISTORY (from Senso memory — what the patient discussed in recent calls):
+{senso_context}
+Use this to detect changes: are they forgetting topics they used to mention? Are they repeating things? Has their mood shifted compared to previous calls?"""
+
     prompt = f"""You are a clinical speech analysis AI for an elderly care platform.
 Analyze this call and return ONLY valid JSON.
 
 TRANSCRIPT: {transcript[:5000]}
 DURATION: {duration}s | BASELINE COGNITIVE: {baseline}
-ENTITIES DETECTED BY GLiNER2: {entity_str}
 {modulate_context}
+{memory_context}
 
 Return JSON:
 {{
@@ -206,21 +191,35 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             modulate_result = await modulate.analyze_recording(audio_bytes, filename)
             if modulate_result and modulate_result.get("utterances"):
                 acoustic_signals = modulate.extract_biomarkers(modulate_result, transcript)
-                logger.info(f"Modulate Velma-2: {acoustic_signals.get('patient_utterance_count', 0)} patient utterances, "
+                logger.info(f"Modulate Velma-2 SUCCESS: {acoustic_signals.get('patient_utterance_count', 0)} patient utterances, "
                             f"dominant emotion={acoustic_signals.get('dominant_emotion')}, "
                             f"rate={acoustic_signals.get('speech_rate_wpm')}wpm, "
                             f"fluency={acoustic_signals.get('fluency_score')}")
             else:
-                logger.warning("Modulate returned no utterances, falling back to transcript")
+                logger.warning("Modulate returned no utterances — falling back to transcript-only analysis")
+        else:
+            logger.warning(f"Audio download failed for {recording_url[:80]} — Modulate skipped")
+    else:
+        logger.warning("No recording_url from Vapi — Modulate skipped. "
+                        "Enable recording in your Vapi assistant config (recordingEnabled: true).")
 
-    # Step 2: GLiNER2 entity extraction
-    entities = extract_entities(transcript)
+    # Step 2: Senso — retrieve past conversation context (the "memory" of the agent)
+    senso_context = ""
+    try:
+        senso_context = await senso.retrieve_context(patient_id, patient_name)
+        if senso_context:
+            logger.info(f"Senso: loaded {len(senso_context)} chars of past context for {patient_name}")
+        else:
+            logger.info(f"Senso: no prior context for {patient_name} (first call or key not set)")
+    except Exception as e:
+        logger.warning(f"Senso retrieval failed (continuing without): {e}")
 
-    # Step 3: OpenAI cognitive analysis (fed with Modulate signals for better accuracy)
-    analysis = analyze_with_openai(transcript, duration, entities, baseline,
-                                    modulate_signals=acoustic_signals)
+    # Step 3: OpenAI cognitive analysis (fed with Modulate signals + Senso memory)
+    analysis = analyze_with_openai(transcript, duration, baseline,
+                                    modulate_signals=acoustic_signals,
+                                    senso_context=senso_context)
 
-    # Step 4: Build final acoustic signals (Modulate real data or transcript fallback)
+    # Step 4: Build acoustic signals (Modulate real data or transcript-derived fallback)
     if acoustic_signals:
         speech_rate = float(acoustic_signals["speech_rate_wpm"])
         pause_freq = float(acoustic_signals["pause_frequency_per_min"])
@@ -277,7 +276,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             cognitive_score=float(analysis.get("cognitiveScore",70)),
             emotional_score=emotional,
             motor_score=float(analysis.get("motorScore",70)),
-            entities=entities,
+            entities={},
             anomaly_detected=bool(analysis.get("anomalyDetected",False)),
             anomaly_type=analysis.get("anomalyType"),
             anomaly_severity=analysis.get("anomalySeverity"),
@@ -288,10 +287,13 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
 
-    # Step 7: Tavily — fetch clinical research for anomalies
+    # Step 7: Tavily — fetch clinical research for anomalies (runs in thread to avoid blocking)
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
-        research = tavily.search_clinical_research(analysis["anomalyType"])
+        try:
+            research = await asyncio.to_thread(tavily.search_clinical_research, analysis["anomalyType"])
+        except Exception:
+            research = []
         if not research:
             research = await fetch_research(analysis["anomalyType"])
         if research:
@@ -310,9 +312,9 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
 
     return {
         **analysis,
-        "entities": entities,
         "researchItems": research,
         "timestamp": timestamp,
         "acousticSignals": acoustic_signals,
         "rekaValidation": reka_result,
+        "sensoContextUsed": bool(senso_context),
     }

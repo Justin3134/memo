@@ -62,15 +62,15 @@ export default function Dashboard() {
     { key: "emotional" as const, label: "Emotional", value: Math.round(latestCall?.emotionalScore ?? patient?.baseline?.emotionalScore ?? 0), sub: memories[0]?.sentiment ?? "awaiting call" },
   ];
 
+  useEffect(() => {
+    if (!loading && !patient) navigate("/", { replace: true });
+  }, [loading, patient, navigate]);
+
   if (loading) return (
     <MemoLayout>
       <div className="p-8 text-[13px] text-muted-foreground">Loading…</div>
     </MemoLayout>
   );
-
-  useEffect(() => {
-    if (!loading && !patient) navigate("/", { replace: true });
-  }, [loading, patient, navigate]);
 
   if (!patient) return (
     <MemoLayout>

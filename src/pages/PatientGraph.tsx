@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000";
@@ -127,7 +127,8 @@ function useForceGraph(data: GraphData | null, W: number, H: number) {
 }
 
 export default function PatientGraph() {
-  const { patient, calls } = useMemoDashboardData();
+  const navigate = useNavigate();
+  const { loading: patientsLoading, patient, calls } = useMemoDashboardData();
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +142,10 @@ export default function PatientGraph() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const dragging = useRef<{ dx: number; dy: number } | null>(null);
+
+  useEffect(() => {
+    if (!patientsLoading && !patient) navigate("/", { replace: true });
+  }, [patientsLoading, patient, navigate]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -321,9 +326,7 @@ export default function PatientGraph() {
           <div ref={containerRef} className="flex-1 relative bg-[#fafafa]">
             {!patient && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">No patient enrolled.{" "}
-                  <Link to="/onboarding" className="text-foreground underline underline-offset-2">Add one</Link>
-                </p>
+                <p className="text-[13px] text-muted-foreground">Redirecting…</p>
               </div>
             )}
 

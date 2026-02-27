@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getActivePatientId, setActivePatientId } from "@/lib/memoBackend";
+import { getActivePatientId, setActivePatientId, clearActivePatientId } from "@/lib/memoBackend";
 
 const API = (import.meta as any).env?.VITE_BACKEND_URL ?? "http://localhost:8000";
 
@@ -53,7 +53,10 @@ export const useMemoDashboardData = () => {
       if (cancelled || !patients) { setLoading(false); return; }
 
       let pid = activePatientId;
-      if ((!pid || !patients.find((p: any) => p._id === pid)) && patients.length > 0) {
+      if (patients.length === 0) {
+        clearActivePatientId();
+        pid = null;
+      } else if (!pid || !patients.find((p: any) => p._id === pid)) {
         pid = patients[0]._id;
         setActivePatientId(pid);
         setActivePatientIdState(pid);

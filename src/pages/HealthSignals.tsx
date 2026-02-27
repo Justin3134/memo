@@ -1,6 +1,6 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { XAxis, YAxis, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { ArrowUpRight, RotateCcw } from "lucide-react";
@@ -74,16 +74,15 @@ export default function HealthSignals() {
     });
   };
 
+  useEffect(() => {
+    if (!loading && !patient) navigate("/", { replace: true });
+  }, [loading, patient, navigate]);
+
   if (loading) return (
     <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Loading…</div></MemoLayout>
   );
   if (!patient) return (
-    <MemoLayout>
-      <div className="p-8">
-        <p className="text-[13px] text-muted-foreground mb-3">No patient found.</p>
-        <Link to="/onboarding" className="text-[13px] font-medium underline underline-offset-2">Add patient</Link>
-      </div>
-    </MemoLayout>
+    <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Redirecting…</div></MemoLayout>
   );
 
   const activeAlerts = alerts.filter(a => !dismissed.has(a._id));

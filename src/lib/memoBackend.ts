@@ -89,6 +89,10 @@ export const setActivePatientId = (id: string) => {
   if (typeof window !== "undefined") localStorage.setItem(ACTIVE_PATIENT_KEY, id);
 };
 
+export const clearActivePatientId = () => {
+  if (typeof window !== "undefined") localStorage.removeItem(ACTIVE_PATIENT_KEY);
+};
+
 export const getDefaultFamilyId = () => {
   if (typeof window === "undefined") return "family-default";
   let existing = localStorage.getItem(FAMILY_KEY);

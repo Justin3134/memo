@@ -1,5 +1,6 @@
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useState, useEffect } from "react";
+
 import { Check, Plus, X, Trash2, Volume2, User, Clock, Bell, ChevronRight } from "lucide-react";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { patchPatient, deletePatientApi } from "@/lib/memoBackend";
@@ -112,25 +113,19 @@ export default function Settings() {
     if (!patient) return;
     if (!confirm(`Remove ${patient.name} from Memo? This cannot be undone.`)) return;
     await doDelete();
-    navigate("/onboarding");
+    navigate("/");
   };
+
+  useEffect(() => {
+    if (!loading && !patient) navigate("/", { replace: true });
+  }, [loading, patient, navigate]);
 
   if (loading) return (
     <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Loading…</div></MemoLayout>
   );
 
   if (!patient) return (
-    <MemoLayout>
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <p className="text-[13px] text-muted-foreground mb-4">No patient enrolled yet.</p>
-          <Link to="/onboarding"
-            className="text-[13px] font-medium bg-foreground text-background px-4 py-2 rounded-md hover:bg-foreground/90 transition-colors">
-            Add patient
-          </Link>
-        </div>
-      </div>
-    </MemoLayout>
+    <MemoLayout><div className="p-8 text-[13px] text-muted-foreground">Redirecting…</div></MemoLayout>
   );
 
   return (

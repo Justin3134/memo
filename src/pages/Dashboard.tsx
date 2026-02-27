@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, User, Bot, Eye, EyeOff, Phone } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Area, AreaChart, ReferenceLine,
@@ -33,6 +33,7 @@ const scoreBg = (s: number) =>
 const scoreLabel = (s: number) => s >= 75 ? "Stable" : s >= 60 ? "Watch" : "Alert";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [activeMetric, setActiveMetric] = useState<"cognitive" | "motor" | "emotional">("cognitive");
   const [showTranscript, setShowTranscript] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
@@ -67,18 +68,13 @@ export default function Dashboard() {
     </MemoLayout>
   );
 
+  useEffect(() => {
+    if (!loading && !patient) navigate("/", { replace: true });
+  }, [loading, patient, navigate]);
+
   if (!patient) return (
     <MemoLayout>
-      <div className="flex items-center justify-center h-full min-h-[60vh]">
-        <div className="text-center">
-          <h2 className="text-[15px] font-semibold text-foreground mb-2">No patient enrolled</h2>
-          <p className="text-[13px] text-muted-foreground mb-5">Add a patient to start monitoring.</p>
-          <Link to="/onboarding"
-            className="text-[13px] font-medium bg-foreground text-background px-4 py-2 rounded-md hover:bg-foreground/90 transition-colors">
-            Add patient
-          </Link>
-        </div>
-      </div>
+      <div className="p-8 text-[13px] text-muted-foreground">Redirecting…</div>
     </MemoLayout>
   );
 

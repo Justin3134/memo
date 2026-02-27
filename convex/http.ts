@@ -50,6 +50,14 @@ http.route({
       const callId = call.id ?? `call-${Date.now()}`;
       const transcript = rawTranscript || "No transcript available for this call.";
 
+      // Extract recording URL from Vapi (artifact.recording or legacy fields)
+      const recordingUrl: string =
+        call.artifact?.recording ??
+        call.artifact?.recordingUrl ??
+        call.recordingUrl ??
+        call.stereoRecordingUrl ??
+        "";
+
       // Resolve patient — use metadata first, then match by phone
       let patientId: string | null = call.metadata?.patientId ?? null;
 
@@ -86,9 +94,10 @@ http.route({
         callId,
         transcript,
         duration,
+        recordingUrl: recordingUrl || undefined,
       });
 
-      console.log(`Scheduled pipeline for call ${callId} — patient ${patientId}`);
+      console.log(`Scheduled pipeline for call ${callId} — patient ${patientId}${recordingUrl ? " (with recording)" : ""}`);
       return new Response("ok", { status: 200 });
     } catch (err) {
       console.error("Webhook error:", err);

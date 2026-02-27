@@ -23,6 +23,7 @@ export const updateAfterAnalysis = mutation({
     pauseFrequency: v.optional(v.number()),
     responseLatency: v.optional(v.number()),
     status: v.optional(v.string()),
+    recordingUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -46,6 +47,7 @@ export const updateAfterAnalysis = mutation({
         speechRate: args.speechRate,
         pauseFrequency: args.pauseFrequency,
         responseLatency: args.responseLatency,
+        recordingUrl: args.recordingUrl,
         status: args.status ?? existing.status,
       });
 
@@ -71,6 +73,7 @@ export const updateAfterAnalysis = mutation({
       healthMentions: args.healthMentions,
       anomalyDetected: args.anomalyDetected,
       videoGuidanceTopic: args.videoGuidanceTopic,
+      recordingUrl: args.recordingUrl,
     });
 
     await ctx.db.patch(args.patientId, { lastCalledAt: Date.now() });

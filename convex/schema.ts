@@ -63,6 +63,7 @@ export default defineSchema({
     }))),
     anomalyDetected: v.optional(v.boolean()),
     videoGuidanceTopic: v.optional(v.string()),
+    recordingUrl: v.optional(v.string()),
   }).index("by_patient", ["patientId"]).index("by_vapi_call", ["vapiCallId"]),
 
   memories: defineTable({

@@ -1,7 +1,9 @@
-"""Core pipeline: GLiNER2 → OpenAI → Neo4j → Tavily."""
+"""Core pipeline: Audio Analysis → Modulate → GLiNER2 → OpenAI → Neo4j → Tavily."""
 import os, json, time, logging
 from openai import OpenAI
 import neo4j_service as neo4j
+import modulate_service as modulate
+import audio_analysis
 
 logger = logging.getLogger(__name__)
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
@@ -90,20 +92,66 @@ def fetch_research(anomaly_type: str) -> list[dict]:
         logger.error(f"Tavily error: {e}"); return []
 
 async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration: float,
-                       patient_name: str = "Patient", baseline: float = 75.0) -> dict:
+                       patient_name: str = "Patient", baseline: float = 75.0,
+                       recording_url: str | None = None) -> dict:
     timestamp = int(time.time() * 1000)
+
+    # Step 1: Real audio analysis (if recording available from Vapi)
+    real_audio = None
+    if recording_url:
+        logger.info(f"Analyzing audio recording: {recording_url[:80]}...")
+        real_audio = audio_analysis.analyze_recording(recording_url, duration)
+        if real_audio and real_audio.get("audio_available"):
+            logger.info(f"Audio features extracted: rate={real_audio['speech_rate_wpm']}wpm, "
+                        f"pauses={real_audio['pause_frequency_per_min']}/min, "
+                        f"fluency={real_audio['fluency_score']}, "
+                        f"tremor={real_audio['vocal_tremor']}")
+        else:
+            logger.warning("Audio analysis returned no results, falling back to transcript")
+            real_audio = None
+
+    # Step 2: GLiNER2 entity extraction + OpenAI cognitive analysis
     entities = extract_entities(transcript)
     analysis = analyze_with_openai(transcript, duration, entities, baseline)
+
+    # Step 3: Merge signals — real audio takes priority over OpenAI estimates
+    if real_audio:
+        speech_rate = float(real_audio["speech_rate_wpm"])
+        pause_freq = float(real_audio["pause_frequency_per_min"])
+        hesitations = int(real_audio["hesitation_events"])
+        emotional = float(analysis.get("emotionalScore", 70))
+        acoustic_signals = {
+            **real_audio,
+            "source": "modulate_audio_analysis",
+            "api_key_configured": bool(os.environ.get("MODULATE_API_KEY")),
+        }
+    else:
+        speech_rate = float(analysis.get("speechRate", 120))
+        pause_freq = float(analysis.get("pauseFrequency", 2.0))
+        hesitations = int(analysis.get("hesitationCount", 0))
+        emotional = float(analysis.get("emotionalScore", 70))
+        acoustic_signals = modulate.analyze_acoustic_signals(
+            transcript=transcript, duration=duration,
+            speech_rate=speech_rate, pause_frequency=pause_freq,
+            hesitation_count=hesitations, emotional_score=emotional,
+        )
+
+    logger.info(f"Acoustic signals [{acoustic_signals.get('source', 'unknown')}]: "
+                f"fluency={acoustic_signals.get('fluency_score')}, "
+                f"tremor={acoustic_signals.get('vocal_tremor')}, "
+                f"engagement={acoustic_signals.get('engagement_level')}")
+
+    # Step 4: Neo4j — write full analysis to knowledge graph
     try:
         neo4j.write_call_analysis(
             patient_id=patient_id, call_id=call_id, duration=duration,
             summary=analysis.get("callSummary",""), timestamp=timestamp,
-            speech_rate=float(analysis.get("speechRate",120)),
-            pause_frequency=float(analysis.get("pauseFrequency",2.0)),
-            hesitation_count=int(analysis.get("hesitationCount",0)),
+            speech_rate=speech_rate,
+            pause_frequency=pause_freq,
+            hesitation_count=hesitations,
             word_finding_score=float(analysis.get("wordFindingScore",70)),
             cognitive_score=float(analysis.get("cognitiveScore",70)),
-            emotional_score=float(analysis.get("emotionalScore",70)),
+            emotional_score=emotional,
             motor_score=float(analysis.get("motorScore",70)),
             entities=entities,
             anomaly_detected=bool(analysis.get("anomalyDetected",False)),
@@ -113,10 +161,19 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
         )
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
+
+    # Step 5: Tavily — fetch clinical research for anomalies
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
         research = fetch_research(analysis["anomalyType"])
         if research:
             try: neo4j.attach_research(call_id, research)
             except Exception as e: logger.error(f"Research attach failed: {e}")
-    return {**analysis, "entities": entities, "researchItems": research, "timestamp": timestamp}
+
+    return {
+        **analysis,
+        "entities": entities,
+        "researchItems": research,
+        "timestamp": timestamp,
+        "acousticSignals": acoustic_signals,
+    }

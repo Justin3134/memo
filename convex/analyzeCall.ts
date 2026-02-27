@@ -10,9 +10,10 @@ export const run = internalAction({
     callId: v.string(),
     transcript: v.string(),
     duration: v.number(),
+    recordingUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { patientId, callId, transcript, duration } = args;
+    const { patientId, callId, transcript, duration, recordingUrl } = args;
 
     const patient = await ctx.runQuery(api.patients.getById, { patientId });
     if (!patient) { console.error(`Patient ${patientId} not found`); return; }
@@ -30,6 +31,7 @@ export const run = internalAction({
           patient_id: patientId, call_id: callId, transcript, duration,
           patient_name: (patient as any).name ?? "Patient",
           baseline_cognitive: baseline,
+          recording_url: recordingUrl ?? null,
         }),
       });
       if (res.ok) result = await res.json();
@@ -42,12 +44,15 @@ export const run = internalAction({
     if (!result) result = await runMiniMax(transcript, duration, patient, baseline);
 
     // ── Write to Convex for real-time UI updates ──────────────────────────────
+    const acousticSignals = result.acousticSignals ?? {};
     const callDocId = await ctx.runMutation(api.calls.updateAfterAnalysis, {
       callId, patientId,
       duration, transcript,
       cognitiveScore: num(result.cognitiveScore),
       emotionalScore: num(result.emotionalScore),
       motorScore: num(result.motorScore),
+      speechRate: num(acousticSignals.speech_rate_wpm ?? result.speechRate),
+      pauseFrequency: num(acousticSignals.pause_frequency_per_min ?? result.pauseFrequency),
       summary: result.callSummary ?? result.summary ?? "",
       healthMentions: result.healthMentions ?? [],
       conversationSignals: (result.conversationSignals ?? []).map((s: any) => ({
@@ -55,6 +60,7 @@ export const run = internalAction({
       })),
       anomalyDetected: !!result.anomalyDetected,
       videoGuidanceTopic: result.videoGuidanceTopic ?? undefined,
+      recordingUrl: recordingUrl ?? undefined,
       status: "completed",
     });
 

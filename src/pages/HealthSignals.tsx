@@ -328,6 +328,17 @@ export default function HealthSignals() {
                       color={latestCall.anomalyDetected ? "text-memo-red" : "text-memo-green"} />
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-border/50 mt-2">
+                  <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">Analysis pipeline</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">OpenAI GPT-4o</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Reka</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Modulate</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Tavily</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Senso</span>
+                  </div>
+                </div>
               </div>
             ) : (
               <p className="text-[12px] text-muted-foreground">No calls analysed yet.</p>

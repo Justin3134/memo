@@ -1,10 +1,21 @@
-"""Core pipeline: Vapi Recording → Modulate Velma-2 → GLiNER2 → OpenAI → Neo4j → Tavily."""
+"""
+Core pipeline: Vapi → Modulate Velma-2 → GLiNER2 → OpenAI → Reka → Neo4j → Tavily → Senso.
+
+The autonomous agent loop:
+  OBSERVE  → Vapi + Modulate (collect voice data)
+  REASON   → OpenAI + Reka cross-validation (analyze cognition)
+  ACT      → Tavily (fetch evidence) + Alerts (notify family)
+  LEARN    → Senso (conversation memory) + Neo4j (knowledge graph)
+"""
 import os, json, time, logging, asyncio
 import httpx
 from openai import OpenAI
 import neo4j_service as neo4j
 import modulate_service as modulate
 import audio_analysis
+import tavily_service as tavily
+import senso_service as senso
+import reka_service as reka
 
 logger = logging.getLogger(__name__)
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
@@ -231,7 +242,30 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
                 f"tremor={acoustic_signals.get('vocal_tremor')}, "
                 f"engagement={acoustic_signals.get('engagement_level')}")
 
-    # Step 5: Neo4j — write full analysis to knowledge graph
+    # Step 5: Reka cross-validation (independent second opinion)
+    reka_result = None
+    try:
+        reka_result = await reka.cross_validate(
+            transcript=transcript, duration=duration,
+            openai_scores=analysis, modulate_signals=acoustic_signals,
+        )
+    except Exception as e:
+        logger.error(f"Reka cross-validation failed: {e}")
+
+    # If both models agree on anomaly → high confidence
+    # If they disagree → note it in the output
+    if reka_result:
+        if reka_result.get("anomalyDetected") and not analysis.get("anomalyDetected"):
+            analysis["anomalyDetected"] = True
+            analysis["anomalyType"] = "cognitive_decline"
+            analysis["anomalySeverity"] = "low"
+            analysis["anomalyDescription"] = (
+                f"Reka AI flagged a concern the primary model missed: "
+                f"{reka_result.get('reasoning', 'potential cognitive change detected')}"
+            )
+            logger.info("Reka escalated: anomaly detected by second opinion")
+
+    # Step 6: Neo4j — write full analysis to knowledge graph
     try:
         neo4j.write_call_analysis(
             patient_id=patient_id, call_id=call_id, duration=duration,
@@ -249,16 +283,30 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             anomaly_severity=analysis.get("anomalySeverity"),
             anomaly_description=analysis.get("anomalyDescription"),
         )
+        neo4j.build_temporal_chain(patient_id)
+        neo4j.build_cross_patient_similarity(patient_id)
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
 
-    # Step 6: Fetch clinical research for anomalies
+    # Step 7: Tavily — fetch clinical research for anomalies
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
-        research = await fetch_research(analysis["anomalyType"])
+        research = tavily.search_clinical_research(analysis["anomalyType"])
+        if not research:
+            research = await fetch_research(analysis["anomalyType"])
         if research:
             try: neo4j.attach_research(call_id, research)
             except Exception as e: logger.error(f"Research attach failed: {e}")
+
+    # Step 8: Senso — index conversation for memory continuity
+    try:
+        await senso.index_conversation(
+            patient_id=patient_id, patient_name=patient_name,
+            call_id=call_id, summary=analysis.get("callSummary", ""),
+            memories=analysis.get("memories"), timestamp=timestamp,
+        )
+    except Exception as e:
+        logger.error(f"Senso index failed: {e}")
 
     return {
         **analysis,
@@ -266,4 +314,5 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
         "researchItems": research,
         "timestamp": timestamp,
         "acousticSignals": acoustic_signals,
+        "rekaValidation": reka_result,
     }

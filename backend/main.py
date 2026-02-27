@@ -12,6 +12,9 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"), over
 import neo4j_service as neo4j
 import pipeline
 import modulate_service as modulate
+import tavily_service as tavily
+import senso_service as senso
+import reka_service as reka
 from database import init_db, get_db, Patient, Call, Memory, Alert, new_id, now_ms
 
 logging.basicConfig(level=logging.INFO)
@@ -341,26 +344,66 @@ def sync_history(req: SyncHistoryRequest):
             )
             synced += 1
         neo4j.build_temporal_chain(req.patient_id)
+        try:
+            neo4j.build_cross_patient_similarity(req.patient_id)
+        except Exception:
+            pass
         return {"success": True, "synced": synced}
     except Exception as e:
         raise HTTPException(500, str(e))
 
 # ---------------------------------------------------------------------------
-# Care / Yutori research
+# Care / Research — Tavily (clinical evidence) + Yutori (web monitoring)
 # ---------------------------------------------------------------------------
 
 @app.post("/search/care")
 async def search_care(req: CareSearchRequest):
+    results = tavily.search_care_resources(
+        query=req.query, signal_type=req.signal_type or "",
+    )
+    if results:
+        return {"results": results, "source": "tavily"}
+
     key = os.environ.get("YUTORI_API_KEY")
-    if not key:
-        raise HTTPException(400, "YUTORI_API_KEY not set")
-    try:
-        q = f"{req.signal_type or ''} {req.query} elderly cognitive care treatment 2025".strip()
-        results = await pipeline._yutori_research(q, max_wait=120)
-        return {"results": [{"title": r.get("title", ""), "url": r.get("url", ""),
-                             "content": r.get("content", "")[:400]} for r in results[:5]]}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    if key:
+        try:
+            q = f"{req.signal_type or ''} {req.query} elderly cognitive care treatment".strip()
+            yutori_results = await pipeline._yutori_research(q, max_wait=120)
+            return {"results": [{"title": r.get("title", ""), "url": r.get("url", ""),
+                                 "content": r.get("content", "")[:400],
+                                 "source": "yutori"} for r in yutori_results[:5]],
+                    "source": "yutori"}
+        except Exception:
+            pass
+
+    return {"results": [], "source": "none"}
+
+
+class SensoSearchRequest(BaseModel):
+    patient_id: str
+    query: str
+
+
+@app.post("/search/memory")
+async def search_memory(req: SensoSearchRequest):
+    """Semantic search over a patient's conversation history via Senso."""
+    results = await senso.search_patient_history(req.patient_id, req.query)
+    return {"results": results}
+
+
+# ---------------------------------------------------------------------------
+# Health — all services
+# ---------------------------------------------------------------------------
+
+@app.get("/health/services")
+def health_services():
+    return {
+        "neo4j": neo4j.verify_connection()[0],
+        "modulate": modulate.get_status(),
+        "tavily": tavily.get_status(),
+        "senso": senso.get_status(),
+        "reka": reka.get_status(),
+    }
 
 # ---------------------------------------------------------------------------
 # Vapi webhook (replaces Convex /vapi-webhook)

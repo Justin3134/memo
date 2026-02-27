@@ -71,6 +71,17 @@ export const useMemoDashboardData = () => {
     return () => { cancelled = true; mountedRef.current = false; };
   }, [activePatientId]);
 
+  // Auto-refresh every 15s so dashboard stays live after calls
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (activePatientId) {
+        loadPatientData(activePatientId);
+        loadPatients();
+      }
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [activePatientId, loadPatientData, loadPatients]);
+
   const switchPatient = useCallback((id: string) => {
     setActivePatientId(id);
     setActivePatientIdState(id);

@@ -32,6 +32,12 @@ services:
         sync: false
       - key: MODULATE_API_KEY
         sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SENSO_API_KEY
+        sync: false
+      - key: REKA_API_KEY
+        sync: false
 
   - type: web
     name: memo-frontend

@@ -236,6 +236,36 @@ def build_temporal_chain(patient_id: str):
         """, pid=patient_id)
 
 
+def build_cross_patient_similarity(patient_id: str):
+    """
+    Create SIMILAR_PATTERN edges between patients with matching acoustic profiles.
+    This is the population intelligence layer — when patient A's pattern matches
+    patient B who was later flagged, the system can warn A's family earlier.
+    """
+    try:
+        with get_driver().session(database=_db()) as s:
+            s.run("""
+                MATCH (p1:Patient {id: $pid})-[:HAD_CALL]->(c1:Call)-[:HAS_ACOUSTIC]->(a1:AcousticProfile)
+                WITH p1, avg(a1.speechRate) AS sr1, avg(a1.pauseFrequency) AS pf1,
+                     avg(a1.wordFindingScore) AS wf1
+                MATCH (p2:Patient)-[:HAD_CALL]->(c2:Call)-[:HAS_ACOUSTIC]->(a2:AcousticProfile)
+                WHERE p1 <> p2
+                WITH p1, p2, sr1, pf1, wf1,
+                     avg(a2.speechRate) AS sr2, avg(a2.pauseFrequency) AS pf2,
+                     avg(a2.wordFindingScore) AS wf2
+                WHERE abs(sr1 - sr2) < 15 AND abs(pf1 - pf2) < 3
+                WITH p1, p2,
+                     1.0 - (abs(sr1-sr2)/150.0 + abs(pf1-pf2)/20.0 + abs(wf1-wf2)/100.0) / 3.0 AS sim
+                WHERE sim > 0.6
+                MERGE (p1)-[r:SIMILAR_PATTERN]->(p2)
+                SET r.similarity = round(sim * 100) / 100.0,
+                    r.updatedAt = timestamp()
+            """, pid=patient_id)
+            logger.info(f"Cross-patient similarity updated for {patient_id}")
+    except Exception as e:
+        logger.warning(f"Cross-patient similarity skipped: {e}")
+
+
 def _extract_topics(text: str) -> list[str]:
     """Pull meaningful topics from a call summary. Returns lowercased, deduplicated."""
     stop = {"the", "and", "was", "for", "that", "with", "this", "from", "but", "not",

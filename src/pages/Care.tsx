@@ -126,7 +126,7 @@ export default function Care() {
           <div className="flex items-center justify-between px-8 pt-7 pb-5 border-b border-border">
             <div>
               <h1 className="text-[15px] font-semibold text-foreground">Care</h1>
-              <p className="text-[12px] text-muted-foreground mt-0.5">Powered by Yutori · deep research</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">Powered by Tavily + Yutori</p>
             </div>
             {/* Mode toggle */}
             <div className="flex gap-0.5 p-0.5 bg-muted rounded-lg">

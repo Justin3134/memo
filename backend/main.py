@@ -1,11 +1,12 @@
 """Memo FastAPI backend — all-in-one: REST API, Vapi webhook, analysis pipeline."""
 import os, json, logging, time, asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
+import httpx
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../.env"), override=True)
 
@@ -404,6 +405,187 @@ def health_services():
         "senso": senso.get_status(),
         "reka": reka.get_status(),
     }
+
+# ---------------------------------------------------------------------------
+# VAPI direct API — fetch call by ID, trigger outbound call
+# ---------------------------------------------------------------------------
+
+VAPI_BASE = "https://api.vapi.ai"
+
+
+def _vapi_headers() -> dict:
+    key = os.environ.get("VAPI_API_KEY", "")
+    if not key:
+        raise HTTPException(500, "VAPI_API_KEY not configured on backend")
+    return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+@app.post("/vapi/fetch-call/{call_id}")
+async def fetch_vapi_call(call_id: str, bg: BackgroundTasks, patient_id: str = Query(default=None)):
+    """Fetch a VAPI call by ID, create the Call record, and run the full pipeline (incl. Modulate)."""
+    headers = _vapi_headers()
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{VAPI_BASE}/call/{call_id}", headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(resp.status_code, f"VAPI API: {resp.text[:300]}")
+        call_data = resp.json()
+
+    duration = float(call_data.get("duration") or 0)
+    if not duration:
+        costs = call_data.get("costs") or call_data.get("cost") or {}
+        if isinstance(costs, list):
+            for c in costs:
+                if c.get("type") == "total":
+                    duration = float(c.get("minutes", 0)) * 60
+                    break
+
+    artifact = call_data.get("artifact") or {}
+    transcript_source = artifact.get("transcript") or call_data.get("transcript") or ""
+    raw_transcript = ""
+    if isinstance(transcript_source, str):
+        raw_transcript = transcript_source
+    elif isinstance(transcript_source, list):
+        raw_transcript = "\n".join(
+            l.get("text") or l.get("transcript") or l.get("content") or ""
+            for l in transcript_source
+        )
+    if not raw_transcript:
+        msgs = artifact.get("messages") or call_data.get("messages") or []
+        raw_transcript = "\n".join(
+            f"{'AI' if m.get('role') == 'assistant' else 'User'}: {m.get('message') or m.get('text') or m.get('content') or ''}"
+            for m in msgs if m.get("message") or m.get("text") or m.get("content")
+        )
+
+    recording_url = (
+        artifact.get("recordingUrl") or artifact.get("stereoRecordingUrl")
+        or call_data.get("recordingUrl") or call_data.get("stereoRecordingUrl")
+        or ""
+    )
+
+    logger.info(f"VAPI fetch-call {call_id}: duration={duration}, "
+                f"transcript_len={len(raw_transcript)}, recording={'YES' if recording_url else 'NONE'}")
+
+    db = get_db()
+    try:
+        if not patient_id:
+            customer_phone = (call_data.get("customer") or {}).get("number", "")
+            metadata_pid = (call_data.get("metadata") or {}).get("patientId")
+            patient_id = metadata_pid
+            if not patient_id:
+                all_patients = db.query(Patient).all()
+                if all_patients:
+                    digits = customer_phone.replace("+", "").replace("-", "").replace(" ", "")
+                    matched = None
+                    for p in all_patients:
+                        p_digits = p.phone_number.replace("+", "").replace("-", "").replace(" ", "")
+                        if p_digits and digits and (p_digits == digits or p_digits[-10:] == digits[-10:]):
+                            matched = p
+                            break
+                    resolved = matched or all_patients[0]
+                    patient_id = resolved.id
+        if not patient_id:
+            raise HTTPException(404, "No patient found — register one first")
+
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        patient_name = patient.name if patient else "Patient"
+        baseline = 75.0
+        if patient and patient.baseline_json:
+            try:
+                baseline = json.loads(patient.baseline_json).get("cognitiveScore", 75.0)
+            except Exception:
+                pass
+
+        existing = db.query(Call).filter(Call.vapi_call_id == call_id).first()
+        if not existing:
+            initial_call = Call(
+                id=new_id(), patient_id=patient_id, vapi_call_id=call_id,
+                started_at=now_ms(), status="processing",
+                duration=duration, transcript=raw_transcript or "No transcript.",
+            )
+            db.add(initial_call)
+            db.commit()
+            logger.info(f"Created initial Call record for {call_id}")
+        else:
+            logger.info(f"Call {call_id} already exists, re-running pipeline")
+    finally:
+        db.close()
+
+    bg.add_task(_run_analysis_pipeline, patient_id, call_id,
+                raw_transcript or "No transcript.", duration,
+                patient_name, baseline, recording_url or None)
+
+    return {
+        "status": "processing",
+        "call_id": call_id,
+        "patient_id": patient_id,
+        "patient_name": patient_name,
+        "duration": duration,
+        "has_recording": bool(recording_url),
+        "has_transcript": bool(raw_transcript),
+        "recording_url": recording_url[:80] if recording_url else None,
+        "message": "Pipeline scheduled — call will appear on dashboard within seconds.",
+    }
+
+
+@app.get("/vapi/calls")
+async def list_vapi_calls(limit: int = 10):
+    """List recent VAPI calls (directly from VAPI API) for debugging."""
+    headers = _vapi_headers()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{VAPI_BASE}/call?limit={min(limit, 50)}", headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(resp.status_code, f"VAPI API: {resp.text[:300]}")
+        calls = resp.json()
+
+    return [
+        {
+            "id": c.get("id"),
+            "status": c.get("status"),
+            "duration": c.get("duration"),
+            "createdAt": c.get("createdAt"),
+            "endedAt": c.get("endedAt"),
+            "customer": (c.get("customer") or {}).get("number"),
+            "hasRecording": bool((c.get("artifact") or {}).get("recordingUrl")),
+        }
+        for c in (calls if isinstance(calls, list) else [])
+    ]
+
+
+@app.post("/call-now")
+async def call_now(request: Request):
+    """Trigger an outbound VAPI call to a patient."""
+    body = await request.json()
+    phone = body.get("phoneNumber", "").strip()
+    name = body.get("name", "Patient")
+    patient_id = body.get("patientId")
+    assistant_id = body.get("assistantId") or os.environ.get("VAPI_ASSISTANT_ID", "")
+
+    if not phone:
+        raise HTTPException(400, "phoneNumber is required")
+
+    headers = _vapi_headers()
+    phone_number_id = os.environ.get("VAPI_PHONE_NUMBER_ID", "")
+
+    payload: dict = {
+        "name": f"Memo call to {name}",
+        "customer": {"number": phone},
+    }
+    if assistant_id:
+        payload["assistantId"] = assistant_id
+    if phone_number_id:
+        payload["phoneNumberId"] = phone_number_id
+    if patient_id:
+        payload["metadata"] = {"patientId": patient_id}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{VAPI_BASE}/call", headers=headers, json=payload)
+        if resp.status_code not in (200, 201):
+            raise HTTPException(resp.status_code, f"VAPI call failed: {resp.text[:300]}")
+        result = resp.json()
+
+    return {"success": True, "callId": result.get("id"), "status": result.get("status")}
+
 
 # ---------------------------------------------------------------------------
 # Vapi webhook (replaces Convex /vapi-webhook)

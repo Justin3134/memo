@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, Float, Integer, Boolean, Text, ForeignKey, Index
+from sqlalchemy import create_engine, Column, String, Float, Integer, Boolean, Text, ForeignKey, Index, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,39 @@ def get_db() -> Session:
     return SessionLocal()
 
 
+def _migrate_columns():
+    """Add any columns present in models but missing from the database."""
+    insp = inspect(engine)
+    existing_tables = insp.get_table_names()
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        existing_cols = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in existing_cols:
+                col_type = col.type.compile(engine.dialect)
+                nullable = "NULL" if col.nullable else "NOT NULL"
+                default = ""
+                if col.default is not None:
+                    dv = col.default.arg
+                    if isinstance(dv, str):
+                        default = f" DEFAULT '{dv}'"
+                    elif isinstance(dv, bool):
+                        default = f" DEFAULT {'true' if dv else 'false'}"
+                    elif callable(dv):
+                        default = ""
+                    else:
+                        default = f" DEFAULT {dv}"
+                stmt = f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {col_type}{default}'
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(stmt))
+                    logger.info(f"Migration: added {table.name}.{col.name} ({col_type})")
+                except Exception as e:
+                    logger.warning(f"Migration skip {table.name}.{col.name}: {e}")
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
-    logger.info(f"Database tables created ({DATABASE_URL.split('://')[0]})")
+    _migrate_columns()
+    logger.info(f"Database tables ready ({DATABASE_URL.split('://')[0]})")

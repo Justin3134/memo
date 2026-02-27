@@ -142,10 +142,9 @@ export async function upsertPatientFromOnboarding(args: {
 }
 
 export async function triggerCallNow(args: { phone: string; name?: string; patientId?: string }) {
-  const backendUrl = (import.meta as any).env?.VITE_WEBHOOK_URL ?? "http://localhost:3001";
   let response: Response;
   try {
-    response = await fetch(`${backendUrl}/call-now`, {
+    response = await fetch(`${API}/call-now`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -155,7 +154,7 @@ export async function triggerCallNow(args: { phone: string; name?: string; patie
       }),
     });
   } catch {
-    throw new Error(`Cannot reach backend at ${backendUrl}/call-now. Make sure the server is running.`);
+    throw new Error(`Cannot reach backend at ${API}/call-now. Make sure the server is running.`);
   }
 
   if (!response.ok) {
@@ -163,6 +162,22 @@ export async function triggerCallNow(args: { phone: string; name?: string; patie
     throw new Error(message || "Failed to trigger immediate call.");
   }
   return await response.json();
+}
+
+export async function fetchVapiCall(callId: string, patientId?: string): Promise<any> {
+  const params = patientId ? `?patient_id=${patientId}` : "";
+  const res = await fetch(`${API}/vapi/fetch-call/${callId}${params}`, { method: "POST" });
+  if (!res.ok) {
+    const msg = await res.text();
+    throw new Error(msg || "Failed to fetch VAPI call");
+  }
+  return await res.json();
+}
+
+export async function listVapiCalls(limit = 10): Promise<any[]> {
+  const res = await fetch(`${API}/vapi/calls?limit=${limit}`);
+  if (!res.ok) return [];
+  return await res.json();
 }
 
 export async function patchPatient(patientId: string, updates: Record<string, any>) {

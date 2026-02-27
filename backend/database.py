@@ -103,6 +103,11 @@ class Call(Base):
     video_guidance_topic = Column(String, nullable=True)
     recording_url = Column(String, nullable=True)
     acoustic_source = Column(String, nullable=True)
+    reka_agrees = Column(Boolean, nullable=True)
+    reka_confidence = Column(String, nullable=True)
+    reka_cognitive_score = Column(Float, nullable=True)
+    reka_reasoning = Column(Text, nullable=True)
+    senso_context_used = Column(Boolean, nullable=True)
 
     patient = relationship("Patient", back_populates="calls")
 
@@ -134,6 +139,11 @@ class Call(Base):
             "videoGuidanceTopic": self.video_guidance_topic,
             "recordingUrl": self.recording_url,
             "acousticSource": self.acoustic_source,
+            "rekaAgrees": self.reka_agrees,
+            "rekaConfidence": self.reka_confidence,
+            "rekaCognitiveScore": self.reka_cognitive_score,
+            "rekaReasoning": self.reka_reasoning,
+            "sensoContextUsed": self.senso_context_used,
         }
 
 
@@ -180,6 +190,11 @@ class Alert(Base):
     video_url = Column(String, nullable=True)
     recommended_action = Column(Text, nullable=True)
     evidence_quotes_json = Column(Text, default="[]")
+    evidence_metrics_json = Column(Text, nullable=True)
+    research_items_json = Column(Text, nullable=True)
+    reka_agrees = Column(Boolean, nullable=True)
+    reka_confidence = Column(String, nullable=True)
+    reka_reasoning = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="alerts")
 
@@ -200,6 +215,11 @@ class Alert(Base):
             "videoUrl": self.video_url,
             "recommendedAction": self.recommended_action,
             "evidenceQuotes": json.loads(self.evidence_quotes_json or "[]"),
+            "evidenceMetrics": json.loads(self.evidence_metrics_json or "null"),
+            "researchItems": json.loads(self.research_items_json or "null"),
+            "rekaAgrees": self.reka_agrees,
+            "rekaConfidence": self.reka_confidence,
+            "rekaReasoning": self.reka_reasoning,
         }
 
 

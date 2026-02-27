@@ -389,7 +389,26 @@ class SensoSearchRequest(BaseModel):
 async def search_memory(req: SensoSearchRequest):
     """Semantic search over a patient's conversation history via Senso."""
     results = await senso.search_patient_history(req.patient_id, req.query)
-    return {"results": results}
+    return {"results": results, "source": "senso"}
+
+
+class YutoriProviderRequest(BaseModel):
+    signal_type: str = ""
+    location: str = "San Francisco Bay Area"
+
+
+@app.post("/care/find-providers")
+async def find_providers(req: YutoriProviderRequest):
+    """Use Yutori to find care providers and check appointment availability."""
+    try:
+        providers = await pipeline.find_providers_via_yutori(
+            signal_type=req.signal_type,
+            location=req.location,
+        )
+        return {"providers": providers, "source": "yutori", "status": "success"}
+    except Exception as e:
+        logger.error(f"Yutori provider search failed: {e}")
+        return {"providers": [], "source": "yutori", "status": "error"}
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +650,13 @@ def _run_analysis_pipeline(patient_id: str, call_id: str, transcript: str,
         call.anomaly_detected = bool(result.get("anomalyDetected"))
         call.recording_url = recording_url
         call.acoustic_source = acoustic.get("source", "unknown")
+        call.senso_context_used = bool(result.get("sensoContextUsed"))
+        reka_val = result.get("rekaValidation") or {}
+        if reka_val:
+            call.reka_agrees = reka_val.get("agreesWithPrimary")
+            call.reka_confidence = reka_val.get("confidence")
+            call.reka_cognitive_score = _num(reka_val.get("cognitiveScore"), None)
+            call.reka_reasoning = reka_val.get("reasoning")
         call.status = "completed"
         call.ended_at = now_ms()
         db.commit()
@@ -652,6 +678,24 @@ def _run_analysis_pipeline(patient_id: str, call_id: str, transcript: str,
             db.add(mem)
 
         if result.get("anomalyDetected"):
+            evidence_metrics = None
+            if acoustic:
+                evidence_metrics = {
+                    "speechRate": acoustic.get("speech_rate_wpm"),
+                    "pauseFrequency": acoustic.get("pause_frequency_per_min"),
+                    "longPauses": acoustic.get("long_pauses_over_1s"),
+                    "dominantEmotion": acoustic.get("dominant_emotion"),
+                    "emotionalScore": acoustic.get("emotional_score"),
+                    "fluencyScore": acoustic.get("fluency_score"),
+                    "hesitationEvents": acoustic.get("hesitation_events"),
+                    "wordFindingDelays": acoustic.get("word_finding_delays"),
+                    "vocalTremor": acoustic.get("vocal_tremor"),
+                    "engagementLevel": acoustic.get("engagement_level"),
+                    "fillerCount": acoustic.get("filler_count"),
+                    "emotionBreakdown": acoustic.get("emotion_breakdown"),
+                    "source": acoustic.get("source"),
+                }
+            reka_val = result.get("rekaValidation") or {}
             alert = Alert(
                 id=new_id(), patient_id=patient_id, call_id=call.id,
                 timestamp=now_ms(),
@@ -663,6 +707,11 @@ def _run_analysis_pipeline(patient_id: str, call_id: str, transcript: str,
                 reviewed=False,
                 recommended_action=result.get("recommendedAction"),
                 evidence_quotes_json=json.dumps(result.get("evidenceQuotes", [])),
+                evidence_metrics_json=json.dumps(evidence_metrics) if evidence_metrics else None,
+                research_items_json=json.dumps(result.get("researchItems")) if result.get("researchItems") else None,
+                reka_agrees=reka_val.get("agreesWithPrimary"),
+                reka_confidence=reka_val.get("confidence"),
+                reka_reasoning=reka_val.get("reasoning"),
             )
             db.add(alert)
 

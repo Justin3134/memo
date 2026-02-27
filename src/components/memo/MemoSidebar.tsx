@@ -1,4 +1,5 @@
 import { NavLink } from "@/components/NavLink";
+import { Link } from "react-router-dom";
 import { LayoutDashboard, Activity, GitBranch, Compass, Settings, UserPlus } from "lucide-react";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 
@@ -16,13 +17,13 @@ export function MemoSidebar() {
   return (
     <aside className="flex flex-col w-[196px] h-screen border-r border-border bg-white shrink-0">
       {/* Brand */}
-      <div className="flex items-center gap-2 h-[52px] px-4 border-b border-border">
+      <Link to="/dashboard" className="flex items-center gap-2 h-[52px] px-4 border-b border-border">
         <span className="text-[14px] font-semibold tracking-tight text-foreground">memo</span>
         <span className="relative flex h-[5px] w-[5px] ml-0.5">
           <span className="animate-pulse-live absolute inline-flex h-full w-full rounded-full bg-memo-green opacity-75" />
           <span className="relative inline-flex rounded-full h-[5px] w-[5px] bg-memo-green" />
         </span>
-      </div>
+      </Link>
 
       {/* Patient context */}
       {patient && (

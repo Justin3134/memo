@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Eye, EyeOff } from "lucide-react";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000";
 
@@ -14,6 +14,8 @@ interface GraphNode {
   y?: number;
   vx?: number;
   vy?: number;
+  fx?: number | null;
+  fy?: number | null;
 }
 
 interface GraphLink {
@@ -24,16 +26,16 @@ interface GraphLink {
 
 interface GraphData { nodes: GraphNode[]; links: GraphLink[] }
 
-const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number; icon?: string }> = {
-  Patient:          { fill: "#18181b", stroke: "#18181b", r: 22, icon: "P" },
-  Call:             { fill: "#3b82f6", stroke: "#2563eb", r: 11 },
+const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> = {
+  Patient:          { fill: "#18181b", stroke: "#18181b", r: 24 },
+  Call:             { fill: "#3b82f6", stroke: "#2563eb", r: 12 },
   AcousticProfile:  { fill: "#8b5cf6", stroke: "#7c3aed", r: 8 },
   CognitiveScore:   { fill: "#10b981", stroke: "#059669", r: 8 },
   Anomaly:          { fill: "#ef4444", stroke: "#dc2626", r: 11 },
-  Topic:            { fill: "#f97316", stroke: "#ea580c", r: 10, icon: "T" },
+  Topic:            { fill: "#f97316", stroke: "#ea580c", r: 10 },
   AcousticMarker:   { fill: "#ec4899", stroke: "#db2777", r: 10 },
   ClinicalPattern:  { fill: "#f59e0b", stroke: "#d97706", r: 10 },
-  Condition:        { fill: "#dc2626", stroke: "#b91c1c", r: 12, icon: "!" },
+  Condition:        { fill: "#dc2626", stroke: "#b91c1c", r: 12 },
   Study:            { fill: "#0ea5e9", stroke: "#0284c7", r: 9 },
 };
 
@@ -52,23 +54,52 @@ const LINK_COLORS: Record<string, string> = {
 
 const ns = (label: string) => NODE_STYLES[label] ?? { fill: "#94a3b8", stroke: "#64748b", r: 8 };
 
-function useForceGraph(data: GraphData | null, W: number, H: number) {
+type LayerKey = "core" | "metrics" | "clinical" | "evidence";
+const LAYERS: Record<LayerKey, { label: string; types: string[]; description: string }> = {
+  core:     { label: "Conversations", types: ["Patient", "Call", "Topic"], description: "Calls & topics discussed" },
+  metrics:  { label: "Metrics", types: ["AcousticProfile", "CognitiveScore", "Anomaly"], description: "Voice & cognitive data" },
+  clinical: { label: "Clinical", types: ["AcousticMarker", "ClinicalPattern", "Condition"], description: "Patterns & conditions" },
+  evidence: { label: "Research", types: ["Study"], description: "Supporting studies" },
+};
+
+const IDEAL_LEN: Record<string, number> = {
+  HAD_CALL: 160, FOLLOWED_BY: 120, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
+  TRIGGERED: 110, MENTIONED: 140, MATCHES: 120, INDICATES: 100,
+  ASSOCIATED_WITH: 100, SUPPORTED_BY: 100,
+};
+
+function useForceGraph(
+  data: GraphData | null, W: number, H: number, visibleTypes: Set<string>
+) {
+  const nodesRef = useRef<GraphNode[]>([]);
+  const linksRef = useRef<{ source: GraphNode; target: GraphNode; type: string }[]>([]);
   const [positions, setPositions] = useState<GraphNode[]>([]);
+  const animRef = useRef<number>(0);
+  const dragRef = useRef<string | null>(null);
+  const alphaRef = useRef(1);
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    if (!data || data.nodes.length === 0) { setPositions([]); return; }
+    if (!data || data.nodes.length === 0) {
+      nodesRef.current = [];
+      linksRef.current = [];
+      setPositions([]);
+      initializedRef.current = false;
+      return;
+    }
     const cx = W / 2, cy = H / 2;
 
     const nodes: GraphNode[] = data.nodes.map((n, i) => {
       const angle = (i / data.nodes.length) * Math.PI * 2;
       const layerR = n.label === "Patient" ? 0 :
-        ["Call", "Topic"].includes(n.label) ? 220 :
-        ["AcousticProfile", "CognitiveScore", "Anomaly"].includes(n.label) ? 380 :
-        ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 520 : 640;
+        ["Call", "Topic"].includes(n.label) ? 200 :
+        ["AcousticProfile", "CognitiveScore", "Anomaly"].includes(n.label) ? 350 :
+        ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 480 : 580;
       return {
         ...n,
-        x: cx + Math.cos(angle) * layerR + (Math.random() - 0.5) * 60,
-        y: cy + Math.sin(angle) * layerR + (Math.random() - 0.5) * 60,
-        vx: 0, vy: 0,
+        x: cx + Math.cos(angle) * layerR + (Math.random() - 0.5) * 50,
+        y: cy + Math.sin(angle) * layerR + (Math.random() - 0.5) * 50,
+        vx: 0, vy: 0, fx: null, fy: null,
       };
     });
 
@@ -79,51 +110,94 @@ function useForceGraph(data: GraphData | null, W: number, H: number) {
       type: l.type,
     })).filter(l => l.source && l.target);
 
-    const idealLen: Record<string, number> = {
-      HAD_CALL: 160, FOLLOWED_BY: 120, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
-      TRIGGERED: 110, MENTIONED: 140, MATCHES: 120, INDICATES: 100,
-      ASSOCIATED_WITH: 100, SUPPORTED_BY: 100,
-    };
+    nodesRef.current = nodes;
+    linksRef.current = links;
+    alphaRef.current = 1;
+    initializedRef.current = true;
+  }, [data, W, H]);
 
-    for (let tick = 0; tick < 250; tick++) {
-      const alpha = 1 - tick / 250;
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[j].x! - nodes[i].x!;
-          const dy = nodes[j].y! - nodes[i].y!;
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    const cx = W / 2, cy = H / 2;
+
+    const tick = () => {
+      const nodes = nodesRef.current;
+      const links = linksRef.current;
+      if (nodes.length === 0) { animRef.current = requestAnimationFrame(tick); return; }
+
+      const alpha = alphaRef.current;
+      const visNodes = nodes.filter(n => visibleTypes.has(n.label));
+      const visLinks = links.filter(l => visibleTypes.has(l.source.label) && visibleTypes.has(l.target.label));
+
+      for (let i = 0; i < visNodes.length; i++) {
+        for (let j = i + 1; j < visNodes.length; j++) {
+          const a = visNodes[i], b = visNodes[j];
+          const dx = b.x! - a.x!;
+          const dy = b.y! - a.y!;
           const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const repulse = 8000 / (d * d) * alpha;
-          nodes[i].vx! -= (dx / d) * repulse;
-          nodes[i].vy! -= (dy / d) * repulse;
-          nodes[j].vx! += (dx / d) * repulse;
-          nodes[j].vy! += (dy / d) * repulse;
+          const repulse = (6000 * alpha) / (d * d);
+          const fx = (dx / d) * repulse;
+          const fy = (dy / d) * repulse;
+          a.vx! -= fx; a.vy! -= fy;
+          b.vx! += fx; b.vy! += fy;
         }
       }
-      for (const l of links) {
+
+      for (const l of visLinks) {
         const dx = l.target.x! - l.source.x!;
         const dy = l.target.y! - l.source.y!;
         const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const target = idealLen[l.type] ?? 120;
-        const f = (d - target) * 0.05 * alpha;
-        l.source.vx! += (dx / d) * f;
-        l.source.vy! += (dy / d) * f;
-        l.target.vx! -= (dx / d) * f;
-        l.target.vy! -= (dy / d) * f;
+        const target = IDEAL_LEN[l.type] ?? 120;
+        const f = (d - target) * 0.04 * alpha;
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
+        l.source.vx! += fx; l.source.vy! += fy;
+        l.target.vx! -= fx; l.target.vy! -= fy;
       }
-      for (const n of nodes) {
-        n.vx! += (cx - n.x!) * 0.005;
-        n.vy! += (cy - n.y!) * 0.005;
-        n.vx! *= 0.75;
-        n.vy! *= 0.75;
-        n.x! += n.vx!;
-        n.y! += n.vy!;
-        n.x! = Math.max(50, Math.min(W - 50, n.x!));
-        n.y! = Math.max(50, Math.min(H - 50, n.y!));
+
+      for (const n of visNodes) {
+        n.vx! += (cx - n.x!) * 0.003 * alpha;
+        n.vy! += (cy - n.y!) * 0.003 * alpha;
+        n.vx! *= 0.6;
+        n.vy! *= 0.6;
+        if (n.fx != null) { n.x = n.fx; n.vx = 0; }
+        else { n.x! += n.vx!; }
+        if (n.fy != null) { n.y = n.fy; n.vy = 0; }
+        else { n.y! += n.vy!; }
+        n.x = Math.max(40, Math.min(W - 40, n.x!));
+        n.y = Math.max(40, Math.min(H - 40, n.y!));
       }
-    }
-    setPositions([...nodes]);
-  }, [data, W, H]);
-  return positions;
+
+      alphaRef.current = Math.max(0.01, alpha * 0.995);
+      setPositions([...nodes]);
+      animRef.current = requestAnimationFrame(tick);
+    };
+
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [W, H, visibleTypes, data]);
+
+  const reheat = useCallback(() => { alphaRef.current = 0.5; }, []);
+
+  const startDrag = useCallback((id: string) => {
+    dragRef.current = id;
+    alphaRef.current = Math.max(alphaRef.current, 0.3);
+  }, []);
+
+  const moveDrag = useCallback((x: number, y: number) => {
+    if (!dragRef.current) return;
+    const n = nodesRef.current.find(n => n.id === dragRef.current);
+    if (n) { n.fx = x; n.fy = y; }
+  }, []);
+
+  const endDrag = useCallback(() => {
+    if (!dragRef.current) return;
+    const n = nodesRef.current.find(n => n.id === dragRef.current);
+    if (n) { n.fx = null; n.fy = null; }
+    dragRef.current = null;
+  }, []);
+
+  return { positions, reheat, startDrag, moveDrag, endDrag, isDragging: () => !!dragRef.current };
 }
 
 export default function PatientGraph() {
@@ -143,6 +217,28 @@ export default function PatientGraph() {
   const [zoom, setZoom] = useState(1);
   const dragging = useRef<{ dx: number; dy: number } | null>(null);
 
+  const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(new Set(["core"]));
+  const visibleTypes = new Set(
+    (Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
+      .filter(([k]) => activeLayers.has(k))
+      .flatMap(([, v]) => v.types)
+  );
+
+  const { positions: nodes, reheat, startDrag, moveDrag, endDrag, isDragging } =
+    useForceGraph(graphData, dims.w, dims.h, visibleTypes);
+
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+  const toggleLayer = (key: LayerKey) => {
+    setActiveLayers(prev => {
+      const next = new Set(prev);
+      if (key === "core") return next;
+      if (next.has(key)) next.delete(key); else next.add(key);
+      reheat();
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!patientsLoading && !patient) navigate("/", { replace: true });
   }, [patientsLoading, patient, navigate]);
@@ -156,9 +252,6 @@ export default function PatientGraph() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  const nodes = useForceGraph(graphData, dims.w, dims.h);
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
   const fetchGraph = async () => {
     if (!patient?._id) return;
@@ -187,8 +280,8 @@ export default function PatientGraph() {
         patient_name: patient.name,
         patient_phone: patient.phoneNumber ?? "",
         calls: calls
-          .filter(c => c.status === "completed" || c.cognitiveScore != null)
-          .map(c => ({
+          .filter((c: any) => c.status === "completed" || c.cognitiveScore != null)
+          .map((c: any) => ({
             call_id: c.vapiCallId ?? c._id,
             timestamp: c.startedAt ?? Date.now(),
             duration: c.duration ?? 0,
@@ -236,14 +329,31 @@ export default function PatientGraph() {
     setZoom(z => Math.max(0.2, Math.min(4, z - e.deltaY * 0.001)));
   }, []);
 
+  const svgToWorld = (clientX: number, clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: (clientX - rect.left - pan.x) / zoom,
+      y: (clientY - rect.top - pan.y) / zoom,
+    };
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.target === svgRef.current || (e.target as SVGElement).tagName === "line" || (e.target as SVGElement).tagName === "svg")
       dragging.current = { dx: e.clientX - pan.x, dy: e.clientY - pan.y };
   };
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (dragging.current) setPan({ x: e.clientX - dragging.current.dx, y: e.clientY - dragging.current.dy });
+    if (isDragging()) {
+      const { x, y } = svgToWorld(e.clientX, e.clientY);
+      moveDrag(x, y);
+    } else if (dragging.current) {
+      setPan({ x: e.clientX - dragging.current.dx, y: e.clientY - dragging.current.dy });
+    }
   };
-  const handleMouseUp = () => { dragging.current = null; };
+  const handleMouseUp = () => {
+    dragging.current = null;
+    endDrag();
+  };
 
   const connectedTo = new Set<string>();
   if (hovered || selected) {
@@ -256,20 +366,18 @@ export default function PatientGraph() {
   }
   const hasFocus = connectedTo.size > 0;
 
+  const visibleNodes = nodes.filter(n => visibleTypes.has(n.label));
   const resolvedLinks = (graphData?.links ?? []).map(l => {
     const sid = typeof l.source === "string" ? l.source : l.source.id;
     const tid = typeof l.target === "string" ? l.target : l.target.id;
-    return {
-      sx: nodeMap.get(sid)?.x, sy: nodeMap.get(sid)?.y,
-      tx: nodeMap.get(tid)?.x, ty: nodeMap.get(tid)?.y,
-      type: l.type, sid, tid,
-    };
-  }).filter(l => l.sx != null && l.tx != null);
+    const sn = nodeMap.get(sid);
+    const tn = nodeMap.get(tid);
+    if (!sn || !tn || !visibleTypes.has(sn.label) || !visibleTypes.has(tn.label)) return null;
+    return { sx: sn.x, sy: sn.y, tx: tn.x, ty: tn.y, type: l.type, sid, tid };
+  }).filter(Boolean) as { sx: number; sy: number; tx: number; ty: number; type: string; sid: string; tid: string }[];
 
   const nodeCounts: Record<string, number> = {};
-  nodes.forEach(n => { nodeCounts[n.label] = (nodeCounts[n.label] ?? 0) + 1; });
-
-  const legendItems = Object.entries(NODE_STYLES).filter(([label]) => nodeCounts[label]);
+  (graphData?.nodes ?? []).forEach(n => { nodeCounts[n.label] = (nodeCounts[n.label] ?? 0) + 1; });
 
   const nodeLabel = (n: GraphNode) => {
     switch (n.label) {
@@ -293,12 +401,12 @@ export default function PatientGraph() {
   return (
     <MemoLayout>
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Header bar */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-white shrink-0">
           <div>
             <h1 className="text-[15px] font-semibold text-foreground tracking-tight">Memory Graph</h1>
             <p className="text-[11px] text-muted-foreground">
-              Longitudinal knowledge graph — {nodes.length} nodes · {resolvedLinks.length} edges
+              Powered by <span className="font-medium text-foreground">Neo4j</span> — {visibleNodes.length} nodes · {resolvedLinks.length} edges
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -318,6 +426,32 @@ export default function PatientGraph() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Layer filter toggles */}
+        <div className="flex items-center gap-1.5 px-6 py-2.5 border-b border-border bg-white shrink-0">
+          <span className="text-[10px] text-muted-foreground mr-1.5 uppercase tracking-wide">Layers</span>
+          {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][]).map(([key, layer]) => {
+            const active = activeLayers.has(key);
+            const count = layer.types.reduce((sum, t) => sum + (nodeCounts[t] ?? 0), 0);
+            if (count === 0 && key !== "core") return null;
+            return (
+              <button
+                key={key}
+                onClick={() => toggleLayer(key)}
+                title={layer.description}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md transition-all border ${
+                  active
+                    ? "bg-foreground text-background border-foreground font-medium"
+                    : "bg-white text-muted-foreground border-border hover:border-foreground/30 hover:text-foreground"
+                } ${key === "core" ? "cursor-default" : "cursor-pointer"}`}
+              >
+                {active ? <Eye className="w-3 h-3" strokeWidth={2} /> : <EyeOff className="w-3 h-3" strokeWidth={2} />}
+                {layer.label}
+                {count > 0 && <span className={`text-[9px] ${active ? "text-background/60" : "text-muted-foreground/60"}`}>{count}</span>}
+              </button>
+            );
+          })}
         </div>
 
         {/* Main area */}
@@ -372,7 +506,7 @@ export default function PatientGraph() {
               </div>
             )}
 
-            {patient && !loading && !error && nodes.length === 0 && !syncing && (
+            {patient && !loading && !error && (graphData?.nodes.length ?? 0) === 0 && !syncing && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
                   <p className="text-[13px] text-muted-foreground mb-2">No graph data yet</p>
@@ -396,7 +530,7 @@ export default function PatientGraph() {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
-              style={{ cursor: dragging.current ? "grabbing" : "grab", display: "block" }}
+              style={{ cursor: isDragging() ? "grabbing" : dragging.current ? "grabbing" : "grab", display: "block" }}
             >
               <defs>
                 <marker id="arrow-FOLLOWED_BY" viewBox="0 0 10 10" refX="10" refY="5"
@@ -424,7 +558,7 @@ export default function PatientGraph() {
                       x1={l.sx} y1={l.sy} x2={l.tx} y2={l.ty}
                       stroke={LINK_COLORS[l.type] ?? "#e2e8f0"}
                       strokeWidth={isChain ? 2 : isEvidence ? 1.5 : 1}
-                      strokeOpacity={dim ? 0.08 : isChain ? 0.7 : 0.4}
+                      strokeOpacity={dim ? 0.06 : isChain ? 0.7 : 0.4}
                       strokeDasharray={isEvidence ? "4 2" : undefined}
                       markerEnd={hasArrow ? `url(#arrow-${l.type})` : undefined}
                     />
@@ -432,7 +566,7 @@ export default function PatientGraph() {
                 })}
 
                 {/* Nodes */}
-                {nodes.map(n => {
+                {visibleNodes.map(n => {
                   const s = ns(n.label);
                   const isSelected = selected?.id === n.id;
                   const isHovered = hovered === n.id;
@@ -443,6 +577,10 @@ export default function PatientGraph() {
 
                   return (
                     <g key={n.id}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        startDrag(n.id);
+                      }}
                       onClick={() => setSelected(isSelected ? null : n)}
                       onMouseEnter={() => setHovered(n.id)}
                       onMouseLeave={() => setHovered(null)}
@@ -456,7 +594,7 @@ export default function PatientGraph() {
                       />
                       {n.label === "Patient" && (
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
-                          fontSize={9} fill="#fff" fontWeight={700}>{String(n.props.name ?? "P").slice(0, 1)}</text>
+                          fontSize={10} fill="#fff" fontWeight={700}>{String(n.props.name ?? "P").slice(0, 1)}</text>
                       )}
                       {n.label === "CognitiveScore" && (
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
@@ -477,17 +615,19 @@ export default function PatientGraph() {
             {/* Legend overlay */}
             <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2">
               <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {legendItems.map(([label, s]) => (
-                  <div key={label} className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fill }} />
-                    <span className="text-[10px] text-muted-foreground">{label} <span className="text-foreground/50">{nodeCounts[label]}</span></span>
-                  </div>
-                ))}
+                {Object.entries(NODE_STYLES)
+                  .filter(([label]) => visibleTypes.has(label) && nodeCounts[label])
+                  .map(([label, s]) => (
+                    <div key={label} className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fill }} />
+                      <span className="text-[10px] text-muted-foreground">{label} <span className="text-foreground/50">{nodeCounts[label]}</span></span>
+                    </div>
+                  ))}
               </div>
             </div>
 
             <div className="absolute top-3 right-3 text-[10px] text-muted-foreground/60">
-              scroll to zoom · drag to pan
+              scroll to zoom · drag to pan · drag nodes to reposition
             </div>
           </div>
 
@@ -521,7 +661,6 @@ export default function PatientGraph() {
                   })}
                 </div>
 
-                {/* Connected edges */}
                 <div className="mt-5 pt-4 border-t border-border">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Connections</p>
                   <div className="space-y-1.5">
@@ -552,36 +691,48 @@ export default function PatientGraph() {
             ) : (
               <div className="p-5">
                 <p className="text-[12px] text-muted-foreground mb-4">Click a node to inspect</p>
-                {nodes.length > 0 && (
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Graph structure</p>
-                      <div className="space-y-1">
-                        {legendItems.map(([label]) => (
-                          <div key={label} className="flex justify-between text-[11px]">
-                            <span className="text-muted-foreground">{label}</span>
-                            <span className="text-foreground font-medium tabular-nums">{nodeCounts[label]}</span>
+
+                {/* Layer guide */}
+                <div className="space-y-3 mb-5">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">How to read the graph</p>
+                  <div className="space-y-2">
+                    {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][]).map(([key, layer]) => {
+                      const count = layer.types.reduce((sum, t) => sum + (nodeCounts[t] ?? 0), 0);
+                      return (
+                        <div key={key} className={`p-2 rounded-md border ${activeLayers.has(key) ? "bg-foreground/[0.02] border-border" : "bg-muted/30 border-transparent"}`}>
+                          <p className="text-[11px] font-medium text-foreground">{layer.label} <span className="text-muted-foreground font-normal">({count})</span></p>
+                          <p className="text-[10px] text-muted-foreground">{layer.description}</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {layer.types.map(t => (
+                              <span key={t} className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
+                                <span className="text-[9px] text-muted-foreground">{t}</span>
+                              </span>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Relationships</p>
-                      <div className="space-y-1">
-                        {Object.entries(
-                          resolvedLinks.reduce<Record<string, number>>((acc, l) => {
-                            acc[l.type] = (acc[l.type] ?? 0) + 1; return acc;
-                          }, {})
-                        ).map(([type, count]) => (
-                          <div key={type} className="flex items-center justify-between text-[11px]">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: LINK_COLORS[type] ?? "#e2e8f0" }} />
-                              <span className="text-muted-foreground">{type.replace(/_/g, " ")}</span>
-                            </div>
-                            <span className="text-foreground font-medium tabular-nums">{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {visibleNodes.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Relationships</p>
+                    <div className="space-y-1">
+                      {Object.entries(
+                        resolvedLinks.reduce<Record<string, number>>((acc, l) => {
+                          acc[l.type] = (acc[l.type] ?? 0) + 1; return acc;
+                        }, {})
+                      ).map(([type, count]) => (
+                        <div key={type} className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: LINK_COLORS[type] ?? "#e2e8f0" }} />
+                            <span className="text-muted-foreground">{type.replace(/_/g, " ")}</span>
                           </div>
-                        ))}
-                      </div>
+                          <span className="text-foreground font-medium tabular-nums">{count}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

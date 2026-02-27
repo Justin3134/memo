@@ -153,6 +153,79 @@ async def _yutori_research(query: str, max_wait: int = YUTORI_MAX_WAIT) -> list[
         return []
 
 
+PROVIDER_OUTPUT_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Provider or clinic name"},
+            "specialty": {"type": "string", "description": "Medical specialty"},
+            "address": {"type": "string", "description": "Full address"},
+            "phone": {"type": "string", "description": "Phone number"},
+            "website": {"type": "string", "description": "Website URL"},
+            "availability": {"type": "string", "description": "Next available appointment or scheduling info"},
+            "rating": {"type": "string", "description": "Patient rating if available"},
+            "why_relevant": {"type": "string", "description": "Why this provider matches the patient's needs"},
+        },
+    },
+}
+
+
+async def find_providers_via_yutori(signal_type: str, location: str = "San Francisco Bay Area") -> list[dict]:
+    """Use Yutori to find care providers matching a signal type and check availability."""
+    key = os.environ.get("YUTORI_API_KEY")
+    if not key:
+        return []
+    signal = signal_type.replace("_", " ") if signal_type else "cognitive decline"
+    query = (
+        f"Find medical providers, clinics, and specialists near {location} "
+        f"that specialize in {signal} and elderly cognitive health. "
+        f"Check their websites for appointment availability, ratings, phone numbers, and addresses. "
+        f"Prioritize providers who accept Medicare and specialize in geriatric care."
+    )
+    headers = {"X-API-Key": key, "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{YUTORI_BASE}/research/tasks",
+                headers=headers,
+                json={"query": query, "output_schema": PROVIDER_OUTPUT_SCHEMA},
+            )
+            resp.raise_for_status()
+            task = resp.json()
+            task_id = task["task_id"]
+            logger.info(f"Yutori provider task created: {task_id}")
+
+            elapsed = 0
+            while elapsed < 90:
+                await asyncio.sleep(YUTORI_POLL_INTERVAL)
+                elapsed += YUTORI_POLL_INTERVAL
+                status_resp = await client.get(
+                    f"{YUTORI_BASE}/research/tasks/{task_id}",
+                    headers=headers,
+                )
+                status_resp.raise_for_status()
+                data = status_resp.json()
+                status = data.get("status")
+                if status == "succeeded":
+                    structured = data.get("structured_result")
+                    if isinstance(structured, list):
+                        return structured[:8]
+                    for update in data.get("updates", []):
+                        sr = update.get("structured_result")
+                        if isinstance(sr, list):
+                            return sr[:8]
+                    return []
+                if status == "failed":
+                    logger.error(f"Yutori provider task {task_id} failed")
+                    return []
+            logger.warning(f"Yutori provider task {task_id} timed out")
+            return []
+    except Exception as e:
+        logger.error(f"Yutori provider search failed: {e}")
+        return []
+
+
 async def fetch_research(anomaly_type: str) -> list[dict]:
     key = os.environ.get("YUTORI_API_KEY")
     if not key:

@@ -49,6 +49,11 @@ export type MemoCall = {
   videoGuidanceTopic?: string;
   recordingUrl?: string;
   acousticSource?: string;
+  rekaAgrees?: boolean;
+  rekaConfidence?: string;
+  rekaCognitiveScore?: number;
+  rekaReasoning?: string;
+  sensoContextUsed?: boolean;
 };
 
 export type MemoMemory = {
@@ -60,6 +65,30 @@ export type MemoMemory = {
   content: string;
   entities: string[];
   sentiment: string;
+};
+
+export type EvidenceMetrics = {
+  speechRate?: number;
+  pauseFrequency?: number;
+  longPauses?: number;
+  dominantEmotion?: string;
+  emotionalScore?: number;
+  fluencyScore?: number;
+  hesitationEvents?: number;
+  wordFindingDelays?: number;
+  vocalTremor?: string;
+  engagementLevel?: number;
+  fillerCount?: number;
+  emotionBreakdown?: Record<string, number>;
+  source?: string;
+};
+
+export type ResearchItem = {
+  title: string;
+  url: string;
+  source: string;
+  excerpt: string;
+  markers?: string[];
 };
 
 export type MemoAlert = {
@@ -76,6 +105,11 @@ export type MemoAlert = {
   videoUrl?: string;
   recommendedAction?: string;
   evidenceQuotes?: string[];
+  evidenceMetrics?: EvidenceMetrics;
+  researchItems?: ResearchItem[];
+  rekaAgrees?: boolean;
+  rekaConfidence?: string;
+  rekaReasoning?: string;
 };
 
 const ACTIVE_PATIENT_KEY = "memoActivePatientId";

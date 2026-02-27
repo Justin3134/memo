@@ -1,30 +1,59 @@
-# Local Run (Frontend + Backend)
+# Local Development Setup
 
-From repo root:
+## Terminal 1 — Frontend
+```bash
+npm install        # first time only
+npm run dev        # http://localhost:5173
+```
 
-1) Install deps (first run)
-- npm install
+## Terminal 2 — FastAPI Backend (Neo4j + OpenAI + Tavily)
+```bash
+cd backend
+pip install -r requirements.txt   # first time only
+uvicorn main:app --reload          # http://localhost:8000
+```
 
-2) Start everything (frontend + all backend services)
-- npm run dev:stack
+Health check: http://localhost:8000/health  
+Neo4j check:  http://localhost:8000/health/neo4j
 
-This runs:
-- Frontend: http://localhost:5173
-- Webhook service: http://localhost:3001/vapi-webhook
-- Consent service: http://localhost:3002/plivo-consent
-- Scheduler: background cron process (runs every minute)
+---
 
-Environment values expected in .env:
-- CONVEX_DEPLOYMENT or VITE_CONVEX_DEPLOYMENT
-- VITE_CONVEX_URL
-- VAPI_API_KEY
-- VAPI_PHONE_NUMBER_ID
-- MINIMAX_API_KEY
-- PLIVO_AUTH_ID
-- PLIVO_AUTH_TOKEN
-- PLIVO_NUMBER (used for outbound alerts)
+## Neo4j troubleshooting
 
-Notes:
-- `npm run dev:stack` starts backend processes in the same terminal. Use Ctrl+C to stop all.
-- If you only need frontend only, run `npm run dev`.
-- If you only need webhook server, run `npm run backend:webhook`.
+The Aura free tier **pauses after 72h of inactivity**.
+
+**If you see "Cannot resolve address" or connection errors:**
+1. Go to https://console.neo4j.io
+2. Click **Resume** on Instance02 (84adec56)
+3. Wait 30–60 seconds
+4. **Fully stop and restart** the backend — do NOT just reload:
+   ```
+   Ctrl+C  →  uvicorn main:app --reload
+   ```
+   (uvicorn --reload watches .py files, not .env. A full restart re-reads credentials.)
+
+**If changing .env credentials:**
+Always do a full stop + restart of uvicorn. `--reload` only picks up Python changes.
+
+---
+
+## Environment variables (.env)
+```
+NEO4J_URI=neo4j+s://84adec56.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=c6vdmahzBppgyaCXYR7jEcRE1dixYLPmTaYyoZbsJns
+NEO4J_DATABASE=neo4j
+
+TAVILY_API_KEY=tvly-dev-...
+OPENAI_API_KEY=sk-proj-...
+PIONEER_API_KEY=           ← get from gliner.pioneer.ai
+
+VITE_BACKEND_URL=http://localhost:8000
+VITE_CONVEX_URL=https://friendly-ostrich-184.convex.cloud
+```
+
+---
+
+## Deploy to Render
+Push to GitHub → connect repo at render.com → set env vars from above.
+Backend deploys from `backend/` using `render.yaml`.

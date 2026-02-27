@@ -332,24 +332,81 @@ def build_cross_patient_similarity(patient_id: str):
 
 
 def _extract_topics(text: str) -> list[str]:
-    """Pull meaningful topics from a call summary. Returns lowercased, deduplicated."""
-    stop = {"the", "and", "was", "for", "that", "with", "this", "from", "but", "not",
-            "had", "has", "have", "been", "were", "are", "about", "also", "they",
-            "their", "she", "her", "his", "him", "will", "would", "could", "can",
-            "did", "does", "just", "more", "some", "than", "very", "what", "when",
-            "who", "how", "all", "each", "which", "call", "today", "talked", "mentioned",
-            "discussed", "said", "told", "asked", "spoke", "patient", "seemed", "appeared",
-            "still", "being", "after", "before", "during", "like", "well", "good",
-            "completed", "daily", "companion", "one", "two", "you", "your", "its"}
-    words = re.findall(r"[A-Z][a-z]{2,}|[a-z]{3,}", text)
+    """Extract meaningful multi-word topic phrases from a call summary."""
+    if not text or len(text) < 10:
+        return []
+
+    sentences = re.split(r'[.!?]+\s*', text.strip())
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 12]
+
+    filler_re = re.compile(
+        r"^(?:(?:The\s+)?(?:user|patient|caller|person|speaker)\s+)|"
+        r"^(?:She|He|They|Mom|Dad|Grandma|Grandpa|Dorothy|The\s+caller)\s+|"
+        r"^(?:Today'?s?\s+(?:call|conversation|session)\s+)|"
+        r"^(?:During\s+(?:the|today'?s?)\s+(?:call|conversation))\s*,?\s*|"
+        r"^(?:In\s+(?:this|today'?s?)\s+(?:call|conversation))\s*,?\s*|"
+        r"^(?:(?:Also|Additionally|Furthermore|Overall),?\s+)|"
+        r"^(?:(?:mentioned|discussed|talked\s+about|said|noted|expressed|reported)\s+(?:that\s+)?)|"
+        r"^(?:(?:seemed?|appeared?|sounded?)\s+(?:to\s+be\s+)?)",
+        re.IGNORECASE,
+    )
+
     topics = []
-    seen = set()
-    for w in words:
-        low = w.lower()
-        if low not in stop and low not in seen and len(low) > 2:
-            seen.add(low)
-            topics.append(low.title())
-    return topics[:8]
+    seen_lower: set[str] = set()
+    for sentence in sentences[:6]:
+        phrase = filler_re.sub("", sentence).strip().lstrip(",").strip()
+        if len(phrase) < 5:
+            continue
+        words = phrase.split()
+        if len(words) > 8:
+            phrase = " ".join(words[:8])
+        phrase = re.sub(r"\s+(?:and|but|or|which|that|who|so|because)\s*$", "", phrase)
+        phrase = phrase.strip().rstrip(",").strip()
+        if len(phrase) < 5:
+            continue
+        phrase = phrase[0].upper() + phrase[1:]
+        low = phrase.lower()
+        if low not in seen_lower:
+            seen_lower.add(low)
+            topics.append(phrase)
+    return topics[:6]
+
+
+def write_providers(providers: list[dict], signal_type: str, location: str):
+    """Write Yutori/Tavily-found providers as nodes in the graph, linked to conditions."""
+    db = _db()
+    condition_map = {
+        "word_finding_decline": "MCI",
+        "word_finding_difficulty": "MCI",
+        "memory_gaps": "MCI",
+        "memory_lapse": "EarlyAlzheimers",
+        "cognitive_decline": "MCI",
+        "emotional_distress": "Depression",
+        "confusion_indicator": "MCI",
+    }
+    condition_name = condition_map.get(signal_type, "MCI")
+    with get_driver().session(database=db) as s:
+        for prov in providers[:6]:
+            name = prov.get("name", "").strip()
+            if not name:
+                continue
+            found_by = prov.get("found_by", "yutori")
+            s.run("""
+                MERGE (pr:Provider {name: $name})
+                SET pr.specialty = $spec, pr.address = $addr, pr.phone = $phone,
+                    pr.website = $web, pr.availability = $avail, pr.rating = $rating,
+                    pr.why_relevant = $why, pr.location = $loc, pr.foundBy = $found
+                WITH pr
+                OPTIONAL MATCH (cond:Condition {name: $cn})
+                FOREACH (_ IN CASE WHEN cond IS NOT NULL THEN [1] ELSE [] END |
+                    MERGE (cond)-[:TREATED_AT]->(pr)
+                )
+            """, name=name, spec=prov.get("specialty", ""),
+                 addr=prov.get("address", ""), phone=prov.get("phone", ""),
+                 web=prov.get("website", ""), avail=prov.get("availability", ""),
+                 rating=prov.get("rating", ""), why=prov.get("why_relevant", ""),
+                 loc=location, cn=condition_name, found=found_by)
+        logger.info(f"Wrote {min(len(providers), 6)} providers to Neo4j graph")
 
 
 # ─── Graph reads ─────────────────────────────────────────────────────────────
@@ -457,6 +514,16 @@ def get_patient_graph(patient_id: str) -> dict:
             link(c, a, "HAS_ACOUSTIC")
             link(a, m, "MATCHES")
 
+        # Provider nodes (from Yutori/Tavily provider search)
+        provider_res = s.run("""
+            MATCH (cond:Condition)-[:TREATED_AT]->(pr:Provider)
+            RETURN cond, pr
+        """)
+        for rec in provider_res:
+            cond = add(rec["cond"], "Condition")
+            pr = add(rec["pr"], "Provider")
+            link(cond, pr, "TREATED_AT")
+
         # FOLLOWED_BY edges
         chain = s.run("""
             MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c1:Call)-[:FOLLOWED_BY]->(c2:Call)
@@ -502,9 +569,15 @@ def list_patients() -> list[dict]:
 def attach_research(call_id: str, items: list[dict]):
     with get_driver().session(database=_db()) as s:
         for item in items:
+            url = item.get("url", "")
+            if not url:
+                continue
             s.run("""
                 MERGE (r:Study {url: $url})
-                SET r.title=$title, r.source=$src
+                SET r.title=$title, r.source=$src, r.foundBy=$found,
+                    r.excerpt=$excerpt
                 WITH r MATCH (an:Anomaly {callId: $cid}) MERGE (an)-[:SUPPORTED_BY]->(r)
-            """, url=item.get("url",""), title=item.get("title",""),
-                 src=item.get("source",""), cid=call_id)
+            """, url=url, title=item.get("title",""),
+                 src=item.get("source",""), cid=call_id,
+                 found=item.get("found_by", "tavily"),
+                 excerpt=item.get("excerpt", "")[:300])

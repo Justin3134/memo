@@ -97,63 +97,6 @@ YUTORI_BASE = "https://api.yutori.com/v1"
 YUTORI_POLL_INTERVAL = 3
 YUTORI_MAX_WAIT = 120
 
-RESEARCH_OUTPUT_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string", "description": "Title of the finding"},
-            "url": {"type": "string", "description": "Source URL"},
-            "content": {"type": "string", "description": "Brief excerpt or summary (max 300 chars)"},
-        },
-    },
-}
-
-
-async def _yutori_research(query: str, max_wait: int = YUTORI_MAX_WAIT) -> list[dict]:
-    """Create a Yutori Research task, poll until done, return structured results."""
-    key = os.environ.get("YUTORI_API_KEY")
-    if not key:
-        return []
-    headers = {"X-API-Key": key, "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{YUTORI_BASE}/research/tasks",
-            headers=headers,
-            json={"query": query, "output_schema": RESEARCH_OUTPUT_SCHEMA},
-        )
-        resp.raise_for_status()
-        task = resp.json()
-        task_id = task["task_id"]
-        logger.info(f"Yutori research task created: {task_id}")
-
-        elapsed = 0
-        while elapsed < max_wait:
-            await asyncio.sleep(YUTORI_POLL_INTERVAL)
-            elapsed += YUTORI_POLL_INTERVAL
-            status_resp = await client.get(
-                f"{YUTORI_BASE}/research/tasks/{task_id}",
-                headers=headers,
-            )
-            status_resp.raise_for_status()
-            data = status_resp.json()
-            status = data.get("status")
-            if status == "succeeded":
-                structured = data.get("structured_result")
-                if isinstance(structured, list):
-                    return structured
-                for update in data.get("updates", []):
-                    sr = update.get("structured_result")
-                    if isinstance(sr, list):
-                        return sr
-                return []
-            if status == "failed":
-                logger.error(f"Yutori task {task_id} failed")
-                return []
-        logger.warning(f"Yutori task {task_id} timed out after {max_wait}s")
-        return []
-
-
 PROVIDER_OUTPUT_SCHEMA = {
     "type": "array",
     "items": {
@@ -173,16 +116,41 @@ PROVIDER_OUTPUT_SCHEMA = {
 
 
 async def find_providers_via_yutori(signal_type: str, location: str = "San Francisco Bay Area") -> list[dict]:
-    """Use Yutori to find care providers matching a signal type and check availability."""
+    """Use Yutori Research API to find care providers, with Tavily fallback."""
+    signal = signal_type.replace("_", " ") if signal_type else "cognitive decline"
+
+    # Try Yutori first
+    yutori_results = await _yutori_provider_search(signal, location)
+    if yutori_results:
+        for p in yutori_results:
+            p["found_by"] = "yutori"
+        return yutori_results
+
+    # Fallback to Tavily for provider search
+    logger.info("Yutori returned no providers, falling back to Tavily")
+    tavily_results = _tavily_provider_search(signal, location)
+    for p in tavily_results:
+        p["found_by"] = "tavily"
+    return tavily_results
+
+
+async def _yutori_provider_search(signal: str, location: str) -> list[dict]:
     key = os.environ.get("YUTORI_API_KEY")
     if not key:
+        logger.warning("YUTORI_API_KEY not set")
         return []
-    signal = signal_type.replace("_", " ") if signal_type else "cognitive decline"
+
+    # Parse location into city, region, country for user_location
+    loc_parts = [p.strip() for p in location.split(",")]
+    user_loc = location if len(loc_parts) >= 2 else f"{location}, CA, US"
+
     query = (
-        f"Find medical providers, clinics, and specialists near {location} "
-        f"that specialize in {signal} and elderly cognitive health. "
-        f"Check their websites for appointment availability, ratings, phone numbers, and addresses. "
-        f"Prioritize providers who accept Medicare and specialize in geriatric care."
+        f"Find real geriatric neurologists, memory care clinics, and cognitive health specialists "
+        f"near {location}. For each provider, find their actual name, address, phone number, "
+        f"website URL, patient ratings, and whether they accept Medicare. "
+        f"Focus on providers who treat {signal} in elderly patients. "
+        f"Check at least 5 different provider directory websites like Healthgrades, Zocdoc, "
+        f"WebMD, Vitals, and hospital websites."
     )
     headers = {"X-API-Key": key, "Content-Type": "application/json"}
     try:
@@ -190,15 +158,19 @@ async def find_providers_via_yutori(signal_type: str, location: str = "San Franc
             resp = await client.post(
                 f"{YUTORI_BASE}/research/tasks",
                 headers=headers,
-                json={"query": query, "output_schema": PROVIDER_OUTPUT_SCHEMA},
+                json={
+                    "query": query,
+                    "output_schema": PROVIDER_OUTPUT_SCHEMA,
+                    "user_location": user_loc,
+                },
             )
             resp.raise_for_status()
             task = resp.json()
             task_id = task["task_id"]
-            logger.info(f"Yutori provider task created: {task_id}")
+            logger.info(f"Yutori provider task created: {task_id} (view: {task.get('view_url', '')})")
 
             elapsed = 0
-            while elapsed < 90:
+            while elapsed < 120:
                 await asyncio.sleep(YUTORI_POLL_INTERVAL)
                 elapsed += YUTORI_POLL_INTERVAL
                 status_resp = await client.get(
@@ -208,45 +180,86 @@ async def find_providers_via_yutori(signal_type: str, location: str = "San Franc
                 status_resp.raise_for_status()
                 data = status_resp.json()
                 status = data.get("status")
+                logger.info(f"Yutori task {task_id} status: {status} ({elapsed}s)")
+
                 if status == "succeeded":
                     structured = data.get("structured_result")
-                    if isinstance(structured, list):
+                    if isinstance(structured, list) and len(structured) > 0:
+                        logger.info(f"Yutori returned {len(structured)} providers")
                         return structured[:8]
+                    # Check updates for structured results
                     for update in data.get("updates", []):
                         sr = update.get("structured_result")
-                        if isinstance(sr, list):
+                        if isinstance(sr, list) and len(sr) > 0:
+                            logger.info(f"Yutori returned {len(sr)} providers via updates")
                             return sr[:8]
+                    # Even if structured is empty, try to parse from result text
+                    result_text = data.get("result", "")
+                    if result_text:
+                        logger.info(f"Yutori succeeded but no structured result, raw text length: {len(result_text)}")
                     return []
                 if status == "failed":
                     logger.error(f"Yutori provider task {task_id} failed")
                     return []
-            logger.warning(f"Yutori provider task {task_id} timed out")
+            logger.warning(f"Yutori provider task {task_id} timed out after 120s")
             return []
     except Exception as e:
         logger.error(f"Yutori provider search failed: {e}")
         return []
 
 
-async def fetch_research(anomaly_type: str) -> list[dict]:
-    key = os.environ.get("YUTORI_API_KEY")
-    if not key:
+def _tavily_provider_search(signal: str, location: str) -> list[dict]:
+    """Fallback: use Tavily to search for providers when Yutori is unavailable."""
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_key:
         return []
-    query = f"early detection {anomaly_type.replace('_', ' ')} elderly voice cognitive decline clinical research 2025"
     try:
-        results = await _yutori_research(query, max_wait=90)
-        return [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "source": r.get("url", "").split("/")[2] if r.get("url") else "",
-                "excerpt": r.get("content", "")[:300],
-                "markers": [anomaly_type],
-            }
-            for r in results[:3]
-        ]
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=tavily_key)
+        query = f"{signal} specialist geriatric neurologist memory care clinic near {location} appointment booking"
+        result = client.search(
+            query=query,
+            search_depth="advanced",
+            max_results=6,
+            include_domains=[
+                "healthgrades.com", "zocdoc.com", "webmd.com", "vitals.com",
+                "npiprofile.com", "mayoclinic.org", "ucsfhealth.org", "stanfordhealthcare.org",
+            ],
+        )
+        providers = []
+        for r in result.get("results", [])[:6]:
+            title = r.get("title", "")
+            url = r.get("url", "")
+            content = r.get("content", "")
+            providers.append({
+                "name": title.split("|")[0].split("-")[0].strip()[:80],
+                "specialty": signal.title(),
+                "address": location,
+                "phone": "",
+                "website": url,
+                "availability": "Check website for scheduling",
+                "rating": "",
+                "why_relevant": content[:200] if content else f"Specialist in {signal}",
+            })
+        logger.info(f"Tavily provider fallback: {len(providers)} results")
+        return providers
     except Exception as e:
-        logger.error(f"Yutori error: {e}")
+        logger.error(f"Tavily provider fallback failed: {e}")
         return []
+
+
+async def fetch_research(anomaly_type: str) -> tuple[list[dict], str]:
+    """Use Tavily Research API for deep clinical evidence. Returns (items, report)."""
+    try:
+        result = await tavily.research_clinical_evidence(anomaly_type)
+        items = result.get("items", [])
+        report = result.get("report", "")
+        if items:
+            logger.info(f"Tavily Research: {len(items)} sources for '{anomaly_type}'")
+            return items, report
+    except Exception as e:
+        logger.error(f"Tavily Research failed: {e}")
+    return [], ""
 
 async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration: float,
                        patient_name: str = "Patient", baseline: float = 75.0,
@@ -363,15 +376,16 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     except Exception as e:
         logger.error(f"Neo4j write failed: {e}")
 
-    # Step 7: Tavily — fetch clinical research for anomalies (runs in thread to avoid blocking)
+    # Step 7: Tavily Research — deep clinical evidence for anomalies
     research = []
+    research_report = ""
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
-        try:
-            research = await asyncio.to_thread(tavily.search_clinical_research, analysis["anomalyType"])
-        except Exception:
-            research = []
+        research, research_report = await fetch_research(analysis["anomalyType"])
         if not research:
-            research = await fetch_research(analysis["anomalyType"])
+            try:
+                research = await asyncio.to_thread(tavily.search_clinical_research, analysis["anomalyType"])
+            except Exception:
+                research = []
         if research:
             try: neo4j.attach_research(call_id, research)
             except Exception as e: logger.error(f"Research attach failed: {e}")
@@ -389,6 +403,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     return {
         **analysis,
         "researchItems": research,
+        "researchReport": research_report,
         "timestamp": timestamp,
         "acousticSignals": acoustic_signals,
         "rekaValidation": reka_result,

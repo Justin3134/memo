@@ -9,6 +9,7 @@ interface SearchResult { title: string; url: string; content: string; source?: s
 interface Provider {
   name: string; specialty: string; address: string; phone: string;
   website: string; availability: string; rating: string; why_relevant: string;
+  found_by?: string;
 }
 
 const getHostname = (url: string) => {
@@ -276,7 +277,9 @@ export default function Care() {
             <div className="px-8 pb-8">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-[11px] font-medium text-orange-600">{providers.length} providers found</span>
-                <span className="text-[10px] text-muted-foreground">via Yutori</span>
+                <span className="text-[10px] text-muted-foreground">
+                  via {providers[0]?.found_by === "tavily" ? "Tavily" : "Yutori"}
+                </span>
               </div>
               <div className="space-y-3">
                 {providers.map((p, i) => (
@@ -333,7 +336,9 @@ export default function Care() {
                         </a>
                       )}
                       <div className="flex-1" />
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-600">via Yutori</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                        p.found_by === "tavily" ? "bg-sky-100 text-sky-600" : "bg-orange-100 text-orange-600"
+                      }`}>via {p.found_by === "tavily" ? "Tavily" : "Yutori"}</span>
                     </div>
                   </div>
                 ))}

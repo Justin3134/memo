@@ -43,6 +43,7 @@ const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> =
   ClinicalPattern:  { fill: "#f59e0b", stroke: "#d97706", r: 10 },
   Condition:        { fill: "#dc2626", stroke: "#b91c1c", r: 12 },
   Study:            { fill: "#0ea5e9", stroke: "#0284c7", r: 9 },
+  Provider:         { fill: "#f97316", stroke: "#ea580c", r: 11 },
 };
 
 const LINK_COLORS: Record<string, string> = {
@@ -57,23 +58,25 @@ const LINK_COLORS: Record<string, string> = {
   INDICATES:       "#fbbf24",
   ASSOCIATED_WITH: "#f87171",
   SUPPORTED_BY:    "#7dd3fc",
+  TREATED_AT:      "#fb923c",
 };
 
 const ns = (label: string) => NODE_STYLES[label] ?? { fill: "#94a3b8", stroke: "#64748b", r: 8 };
 
-type LayerKey = "core" | "voice" | "scores" | "clinical" | "evidence";
+type LayerKey = "core" | "voice" | "scores" | "clinical" | "evidence" | "care";
 const LAYERS: Record<LayerKey, { label: string; types: string[]; description: string }> = {
   core:     { label: "Conversations", types: ["Patient", "Call", "Topic", "Anomaly"], description: "Calls, topics & anomalies" },
   voice:    { label: "Voice Metrics", types: ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"], description: "Modulate acoustic analysis" },
   scores:   { label: "Health Scores", types: ["CognitiveScore", "EmotionalScore", "MotorScore"], description: "Cognitive, emotional & motor" },
   clinical: { label: "Clinical", types: ["AcousticMarker", "ClinicalPattern", "Condition"], description: "Patterns & conditions" },
   evidence: { label: "Research", types: ["Study"], description: "Tavily clinical studies" },
+  care:     { label: "Providers", types: ["Provider"], description: "Yutori-found clinics" },
 };
 
 const IDEAL_LEN: Record<string, number> = {
   HAD_CALL: 160, FOLLOWED_BY: 120, HAS_METRIC: 100, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
   TRIGGERED: 110, MENTIONED: 140, MATCHES: 120, INDICATES: 100,
-  ASSOCIATED_WITH: 100, SUPPORTED_BY: 100,
+  ASSOCIATED_WITH: 100, SUPPORTED_BY: 100, TREATED_AT: 120,
 };
 
 function useForceGraph(
@@ -103,7 +106,8 @@ function useForceGraph(
         ["Call", "Topic", "Anomaly"].includes(n.label) ? 200 :
         ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"].includes(n.label) ? 350 :
         ["CognitiveScore", "EmotionalScore", "MotorScore"].includes(n.label) ? 350 :
-        ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 480 : 580;
+        ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 480 :
+        n.label === "Provider" ? 600 : 580;
       return {
         ...n,
         x: cx + Math.cos(angle) * layerR + (Math.random() - 0.5) * 50,
@@ -402,12 +406,10 @@ export default function PatientGraph() {
     switch (n.label) {
       case "Patient": return String(n.props.name ?? "P").slice(0, 3);
       case "Call": {
-        const num = callTimestamps.get(n.id) ?? 0;
         const ts = Number(n.props.timestamp ?? 0);
-        const date = ts > 0 ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-        return num ? `#${num} ${date}` : date || "Call";
+        return ts > 0 ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Call";
       }
-      case "Topic": return String(n.props.name ?? "").slice(0, 20);
+      case "Topic": return String(n.props.name ?? "").slice(0, 28);
       case "SpeechRate": return `${Number(n.props.value ?? 0).toFixed(0)} wpm`;
       case "PauseFrequency": return `${Number(n.props.value ?? 0).toFixed(1)}/min`;
       case "HesitationCount": return `${n.props.value ?? 0} hesitations`;
@@ -421,6 +423,7 @@ export default function PatientGraph() {
       case "Study": return `${String(n.props.source ?? "Study").slice(0, 16)}`;
       case "Anomaly": return String(n.props.type ?? "anomaly").replace(/_/g, " ").slice(0, 14);
       case "AcousticProfile": return `${n.props.speechRate ?? "?"}wpm`;
+      case "Provider": return String(n.props.name ?? "Clinic").slice(0, 20);
       default: return n.label;
     }
   };
@@ -572,14 +575,18 @@ export default function PatientGraph() {
                   markerWidth="5" markerHeight="5" orient="auto-start-reverse">
                   <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171" opacity={0.6} />
                 </marker>
+                <marker id="arrow-TREATED_AT" viewBox="0 0 10 10" refX="10" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c" opacity={0.6} />
+                </marker>
               </defs>
               <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                 {/* Links */}
                 {resolvedLinks.map((l, i) => {
                   const isChain = l.type === "FOLLOWED_BY";
-                  const isEvidence = ["INDICATES", "ASSOCIATED_WITH", "SUPPORTED_BY"].includes(l.type);
+                  const isEvidence = ["INDICATES", "ASSOCIATED_WITH", "SUPPORTED_BY", "TREATED_AT"].includes(l.type);
                   const dim = hasFocus && !connectedTo.has(l.sid) && !connectedTo.has(l.tid);
-                  const hasArrow = ["FOLLOWED_BY", "INDICATES", "ASSOCIATED_WITH"].includes(l.type);
+                  const hasArrow = ["FOLLOWED_BY", "INDICATES", "ASSOCIATED_WITH", "TREATED_AT"].includes(l.type);
                   return (
                     <line key={i}
                       x1={l.sx} y1={l.sy} x2={l.tx} y2={l.ty}
@@ -654,7 +661,7 @@ export default function PatientGraph() {
                       HesitationCount: "Hesitations", WordFindingScore: "Word Finding",
                       CognitiveScore: "Cognitive", EmotionalScore: "Emotional", MotorScore: "Motor",
                       AcousticProfile: "Acoustic (legacy)", AcousticMarker: "Marker",
-                      ClinicalPattern: "Pattern",
+                      ClinicalPattern: "Pattern", Provider: "Provider",
                     };
                     return (
                       <div key={label} className="flex items-center gap-1">
@@ -682,7 +689,9 @@ export default function PatientGraph() {
                 <div className="space-y-3">
                   {selected.label === "Study" && (
                     <div className="p-2 bg-sky-50/70 rounded-md border border-sky-200/50 mb-2">
-                      <p className="text-[10px] font-medium text-sky-700">Found via Tavily clinical research</p>
+                      <p className="text-[10px] font-medium text-sky-700">
+                        Found via {selected.props.foundBy === "tavily_research" ? "Tavily Research API" : "Tavily"}
+                      </p>
                     </div>
                   )}
                   {["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore"].includes(selected.label) && (
@@ -693,6 +702,13 @@ export default function PatientGraph() {
                   {["CognitiveScore", "EmotionalScore", "MotorScore"].includes(selected.label) && (
                     <div className="p-2 bg-emerald-50/70 rounded-md border border-emerald-200/50 mb-2">
                       <p className="text-[10px] font-medium text-emerald-700">Scored by OpenAI + Reka analysis</p>
+                    </div>
+                  )}
+                  {selected.label === "Provider" && (
+                    <div className="p-2 bg-orange-50/70 rounded-md border border-orange-200/50 mb-2">
+                      <p className="text-[10px] font-medium text-orange-700">
+                        Found by {selected.props.foundBy === "tavily" ? "Tavily" : "Yutori"} provider search
+                      </p>
                     </div>
                   )}
                   {Object.entries(selected.props).map(([k, v]) => {

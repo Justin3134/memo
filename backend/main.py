@@ -399,16 +399,31 @@ class YutoriProviderRequest(BaseModel):
 
 @app.post("/care/find-providers")
 async def find_providers(req: YutoriProviderRequest):
-    """Use Yutori to find care providers and check appointment availability."""
+    """Use Yutori to find care providers, with Tavily fallback. Saves to Neo4j."""
     try:
         providers = await pipeline.find_providers_via_yutori(
             signal_type=req.signal_type,
             location=req.location,
         )
-        return {"providers": providers, "source": "yutori", "status": "success"}
+        source = providers[0].get("found_by", "yutori") if providers else "none"
+
+        # Save providers to Neo4j graph
+        if providers:
+            try:
+                ok, _ = neo4j.verify_connection()
+                if ok:
+                    neo4j.write_providers(
+                        providers=providers,
+                        signal_type=req.signal_type or "cognitive_decline",
+                        location=req.location,
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to write providers to Neo4j: {e}")
+
+        return {"providers": providers, "source": source, "status": "success"}
     except Exception as e:
-        logger.error(f"Yutori provider search failed: {e}")
-        return {"providers": [], "source": "yutori", "status": "error"}
+        logger.error(f"Provider search failed: {e}")
+        return {"providers": [], "source": "error", "status": "error"}
 
 
 # ---------------------------------------------------------------------------
@@ -571,9 +586,73 @@ async def list_vapi_calls(limit: int = 10):
     ]
 
 
+async def _build_memory_context(patient_id: str, patient_name: str) -> str:
+    """Pull Senso context, recent memories, call summaries, and patient profile
+    to give the Vapi assistant memory of past conversations."""
+    parts: list[str] = []
+
+    # 1. Senso semantic memory (past conversation context)
+    try:
+        senso_ctx = await senso.retrieve_context(patient_id, patient_name)
+        if senso_ctx:
+            parts.append(f"Previous conversation context:\n{senso_ctx}")
+    except Exception as e:
+        logger.warning(f"Senso pre-call retrieval failed: {e}")
+
+    # 2. Recent memories and call summaries from the database
+    db = get_db()
+    try:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+
+        if patient:
+            interests = json.loads(patient.interests_json or "[]")
+            known_people = json.loads(patient.known_people_json or "[]")
+            if interests:
+                parts.append(f"Interests and hobbies: {', '.join(interests)}")
+            if known_people:
+                people_str = ", ".join(
+                    p if isinstance(p, str) else p.get("name", str(p))
+                    for p in known_people
+                )
+                parts.append(f"Important people in their life: {people_str}")
+            if patient.health_context:
+                parts.append(f"Health background: {patient.health_context}")
+
+        recent_memories = (
+            db.query(Memory)
+            .filter(Memory.patient_id == patient_id)
+            .order_by(Memory.timestamp.desc())
+            .limit(10)
+            .all()
+        )
+        if recent_memories:
+            mem_lines = [f"- {m.content}" for m in recent_memories if m.content]
+            if mem_lines:
+                parts.append(f"Things {patient_name} has mentioned recently:\n" + "\n".join(mem_lines))
+
+        recent_calls = (
+            db.query(Call)
+            .filter(Call.patient_id == patient_id, Call.summary.isnot(None))
+            .order_by(Call.started_at.desc())
+            .limit(3)
+            .all()
+        )
+        if recent_calls:
+            summary_lines = [f"- {c.summary}" for c in recent_calls if c.summary]
+            if summary_lines:
+                parts.append(f"Recent call summaries:\n" + "\n".join(summary_lines))
+    except Exception as e:
+        logger.warning(f"DB pre-call context failed: {e}")
+    finally:
+        db.close()
+
+    return "\n\n".join(parts)
+
+
 @app.post("/call-now")
 async def call_now(request: Request):
-    """Trigger an outbound VAPI call to a patient."""
+    """Trigger an outbound VAPI call to a patient, injecting Senso memory
+    so the assistant remembers previous conversations."""
     body = await request.json()
     phone = body.get("phoneNumber", "").strip()
     name = body.get("name", "Patient")
@@ -582,6 +661,13 @@ async def call_now(request: Request):
 
     if not phone:
         raise HTTPException(400, "phoneNumber is required")
+
+    # Build memory context from Senso + DB before the call starts
+    memory_context = ""
+    if patient_id:
+        memory_context = await _build_memory_context(patient_id, name)
+        if memory_context:
+            logger.info(f"Pre-call memory context for {name}: {len(memory_context)} chars")
 
     headers = _vapi_headers()
     phone_number_id = os.environ.get("VAPI_PHONE_NUMBER_ID", "")
@@ -597,13 +683,37 @@ async def call_now(request: Request):
     if patient_id:
         payload["metadata"] = {"patientId": patient_id}
 
+    if memory_context:
+        payload["assistantOverrides"] = {
+            "model": {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"You are a warm, caring companion calling {name}. "
+                            f"You remember your previous conversations with them. "
+                            f"Use the context below naturally — reference things when relevant, "
+                            f"ask follow-up questions about topics they've mentioned before, "
+                            f"but don't recite everything at once. Be conversational and genuine.\n\n"
+                            f"{memory_context}"
+                        ),
+                    }
+                ]
+            },
+        }
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(f"{VAPI_BASE}/call", headers=headers, json=payload)
         if resp.status_code not in (200, 201):
             raise HTTPException(resp.status_code, f"VAPI call failed: {resp.text[:300]}")
         result = resp.json()
 
-    return {"success": True, "callId": result.get("id"), "status": result.get("status")}
+    return {
+        "success": True,
+        "callId": result.get("id"),
+        "status": result.get("status"),
+        "memoryContextLoaded": bool(memory_context),
+    }
 
 
 # ---------------------------------------------------------------------------

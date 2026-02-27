@@ -102,6 +102,7 @@ class Call(Base):
     anomaly_detected = Column(Boolean, default=False)
     video_guidance_topic = Column(String, nullable=True)
     recording_url = Column(String, nullable=True)
+    acoustic_source = Column(String, nullable=True)
 
     patient = relationship("Patient", back_populates="calls")
 
@@ -132,6 +133,7 @@ class Call(Base):
             "anomalyDetected": self.anomaly_detected,
             "videoGuidanceTopic": self.video_guidance_topic,
             "recordingUrl": self.recording_url,
+            "acousticSource": self.acoustic_source,
         }
 
 

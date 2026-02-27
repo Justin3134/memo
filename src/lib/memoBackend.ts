@@ -48,6 +48,7 @@ export type MemoCall = {
   anomalyDetected?: boolean;
   videoGuidanceTopic?: string;
   recordingUrl?: string;
+  acousticSource?: string;
 };
 
 export type MemoMemory = {

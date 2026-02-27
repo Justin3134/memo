@@ -448,6 +448,7 @@ def _run_analysis_pipeline(patient_id: str, call_id: str, transcript: str,
         call.conversation_signals_json = json.dumps(result.get("conversationSignals", []))
         call.anomaly_detected = bool(result.get("anomalyDetected"))
         call.recording_url = recording_url
+        call.acoustic_source = acoustic.get("source", "unknown")
         call.status = "completed"
         call.ended_at = now_ms()
         db.commit()
@@ -541,10 +542,12 @@ async def vapi_webhook(request: Request, bg: BackgroundTasks):
     if message_type != "end-of-call-report":
         return {"status": "ok"}
 
-    call = (event.get("message") or {}).get("call") or {}
-    duration = float(event.get("message", {}).get("duration") or call.get("duration") or 0)
+    msg = event.get("message") or {}
+    call = msg.get("call") or {}
+    artifact = msg.get("artifact") or call.get("artifact") or {}
+    duration = float(msg.get("duration") or call.get("duration") or 0)
 
-    transcript_source = event.get("message", {}).get("transcript")
+    transcript_source = msg.get("transcript")
     raw_transcript = ""
     if isinstance(transcript_source, str):
         raw_transcript = transcript_source
@@ -554,7 +557,7 @@ async def vapi_webhook(request: Request, bg: BackgroundTasks):
             for l in transcript_source
         )
     else:
-        msgs = (call.get("artifact") or {}).get("messages") or []
+        msgs = artifact.get("messages") or []
         raw_transcript = "\n".join(
             f"{'AI' if m.get('role') == 'assistant' else 'User'}: {m.get('message') or m.get('text') or m.get('content') or ''}"
             for m in msgs if m.get("message") or m.get("text") or m.get("content")
@@ -564,12 +567,17 @@ async def vapi_webhook(request: Request, bg: BackgroundTasks):
     transcript = raw_transcript or "No transcript available for this call."
 
     recording_url = (
-        (call.get("artifact") or {}).get("recording")
-        or (call.get("artifact") or {}).get("recordingUrl")
+        artifact.get("recordingUrl")
+        or artifact.get("stereoRecordingUrl")
+        or artifact.get("recording")
         or call.get("recordingUrl")
         or call.get("stereoRecordingUrl")
         or ""
     )
+
+    logger.info(f"Vapi webhook: call_id={call_id}, duration={duration}, "
+                f"recording_url={'YES' if recording_url else 'NONE'}, "
+                f"artifact_keys={list(artifact.keys())}")
 
     customer_phone = (call.get("customer") or {}).get("number", "")
     metadata_patient_id = (call.get("metadata") or {}).get("patientId")

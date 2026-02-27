@@ -301,14 +301,25 @@ export default function HealthSignals() {
         {/* ── Right: Modulate voice analysis + signal charts + memories ── */}
         <div className="w-[280px] shrink-0 border-l border-border overflow-auto">
 
-          {/* Modulate Velma-2 voice metrics */}
+          {/* Voice metrics — source-aware */}
           <div className="p-6 border-b border-border">
             <div className="flex items-center gap-2 mb-4">
               <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Voice Analysis</p>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Modulate Velma-2</span>
+              {latestCall?.acousticSource === "modulate_velma2" ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Modulate Velma-2</span>
+              ) : latestCall?.acousticSource === "transcript_derived" ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Transcript Only</span>
+              ) : latestCall ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Pending</span>
+              ) : null}
             </div>
             {latestCall ? (
               <div className="space-y-3">
+                {latestCall.acousticSource === "transcript_derived" && (
+                  <p className="text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1.5 leading-relaxed">
+                    No audio recording available — scores estimated from transcript text only. Enable recording in Vapi for real voice analysis via Modulate.
+                  </p>
+                )}
                 <VoiceMetric label="Speech Rate" value={latestCall.speechRate ? `${Math.round(latestCall.speechRate)}` : "—"} unit="wpm"
                   status={latestCall.speechRate ? (latestCall.speechRate < 100 ? "warn" : latestCall.speechRate > 160 ? "watch" : "ok") : "none"} />
                 <VoiceMetric label="Pause Frequency" value={latestCall.pauseFrequency ? latestCall.pauseFrequency.toFixed(1) : "—"} unit="/min"

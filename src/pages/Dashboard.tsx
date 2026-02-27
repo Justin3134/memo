@@ -182,14 +182,18 @@ export default function Dashboard() {
               <div className="divide-y divide-border">
                 {calls.slice(0, 12).map(call => (
                   <div key={call._id}>
+                    {(() => {
+                      const scores = [call.cognitiveScore, call.motorScore, call.emotionalScore].filter((v): v is number => v != null);
+                      const overall = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+                      return (<>
                     <button
                       onClick={() => setExpandedCallId(expandedCallId === call._id ? null : call._id)}
                       className="w-full px-8 py-2.5 flex items-center gap-3 hover:bg-[#F5F5F5] transition-colors text-left"
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        call.cognitiveScore == null ? "bg-foreground/20" :
-                        call.cognitiveScore >= 75 ? "bg-memo-green" :
-                        call.cognitiveScore >= 60 ? "bg-memo-amber" : "bg-memo-red"
+                        overall == null ? "bg-foreground/20" :
+                        overall >= 75 ? "bg-memo-green" :
+                        overall >= 60 ? "bg-memo-amber" : "bg-memo-red"
                       }`} />
                       <span className="text-[13px] text-foreground/70 flex-1">
                         {new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
@@ -198,9 +202,9 @@ export default function Dashboard() {
                         <span className="text-[11px] text-muted-foreground">{call.duration}s</span>
                       )}
                       <span className={`text-[13px] tabular font-medium w-8 text-right ${
-                        call.cognitiveScore != null ? scoreColor(call.cognitiveScore) : "text-muted-foreground/40"
+                        overall != null ? scoreColor(overall) : "text-muted-foreground/40"
                       }`}>
-                        {call.cognitiveScore != null ? Math.round(call.cognitiveScore) : "—"}
+                        {overall != null ? Math.round(overall) : "—"}
                       </span>
                       {expandedCallId === call._id
                         ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
@@ -231,6 +235,8 @@ export default function Dashboard() {
                         )}
                       </div>
                     )}
+                      </>);
+                    })()}
                   </div>
                 ))}
               </div>

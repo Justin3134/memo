@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { useNavigate } from "react-router-dom";
@@ -28,11 +28,17 @@ interface GraphData { nodes: GraphNode[]; links: GraphLink[] }
 
 const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> = {
   Patient:          { fill: "#18181b", stroke: "#18181b", r: 24 },
-  Call:             { fill: "#3b82f6", stroke: "#2563eb", r: 12 },
-  AcousticProfile:  { fill: "#8b5cf6", stroke: "#7c3aed", r: 8 },
-  CognitiveScore:   { fill: "#10b981", stroke: "#059669", r: 8 },
-  Anomaly:          { fill: "#ef4444", stroke: "#dc2626", r: 11 },
+  Call:             { fill: "#3b82f6", stroke: "#2563eb", r: 14 },
   Topic:            { fill: "#f97316", stroke: "#ea580c", r: 10 },
+  SpeechRate:       { fill: "#7c3aed", stroke: "#6d28d9", r: 9 },
+  PauseFrequency:   { fill: "#8b5cf6", stroke: "#7c3aed", r: 9 },
+  HesitationCount:  { fill: "#a78bfa", stroke: "#8b5cf6", r: 9 },
+  WordFindingScore: { fill: "#6d28d9", stroke: "#5b21b6", r: 9 },
+  CognitiveScore:   { fill: "#10b981", stroke: "#059669", r: 9 },
+  EmotionalScore:   { fill: "#14b8a6", stroke: "#0d9488", r: 9 },
+  MotorScore:       { fill: "#06b6d4", stroke: "#0891b2", r: 9 },
+  Anomaly:          { fill: "#ef4444", stroke: "#dc2626", r: 11 },
+  AcousticProfile:  { fill: "#8b5cf6", stroke: "#7c3aed", r: 8 },
   AcousticMarker:   { fill: "#ec4899", stroke: "#db2777", r: 10 },
   ClinicalPattern:  { fill: "#f59e0b", stroke: "#d97706", r: 10 },
   Condition:        { fill: "#dc2626", stroke: "#b91c1c", r: 12 },
@@ -42,6 +48,7 @@ const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> =
 const LINK_COLORS: Record<string, string> = {
   HAD_CALL:        "#94a3b8",
   FOLLOWED_BY:     "#3b82f6",
+  HAS_METRIC:      "#c4b5fd",
   HAS_ACOUSTIC:    "#c4b5fd",
   HAS_SCORE:       "#6ee7b7",
   TRIGGERED:       "#fca5a5",
@@ -54,16 +61,17 @@ const LINK_COLORS: Record<string, string> = {
 
 const ns = (label: string) => NODE_STYLES[label] ?? { fill: "#94a3b8", stroke: "#64748b", r: 8 };
 
-type LayerKey = "core" | "metrics" | "clinical" | "evidence";
+type LayerKey = "core" | "voice" | "scores" | "clinical" | "evidence";
 const LAYERS: Record<LayerKey, { label: string; types: string[]; description: string }> = {
-  core:     { label: "Conversations", types: ["Patient", "Call", "Topic"], description: "Calls & topics discussed" },
-  metrics:  { label: "Metrics", types: ["AcousticProfile", "CognitiveScore", "Anomaly"], description: "Voice & cognitive data" },
+  core:     { label: "Conversations", types: ["Patient", "Call", "Topic", "Anomaly"], description: "Calls, topics & anomalies" },
+  voice:    { label: "Voice Metrics", types: ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"], description: "Modulate acoustic analysis" },
+  scores:   { label: "Health Scores", types: ["CognitiveScore", "EmotionalScore", "MotorScore"], description: "Cognitive, emotional & motor" },
   clinical: { label: "Clinical", types: ["AcousticMarker", "ClinicalPattern", "Condition"], description: "Patterns & conditions" },
-  evidence: { label: "Research", types: ["Study"], description: "Supporting studies" },
+  evidence: { label: "Research", types: ["Study"], description: "Tavily clinical studies" },
 };
 
 const IDEAL_LEN: Record<string, number> = {
-  HAD_CALL: 160, FOLLOWED_BY: 120, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
+  HAD_CALL: 160, FOLLOWED_BY: 120, HAS_METRIC: 100, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
   TRIGGERED: 110, MENTIONED: 140, MATCHES: 120, INDICATES: 100,
   ASSOCIATED_WITH: 100, SUPPORTED_BY: 100,
 };
@@ -92,8 +100,9 @@ function useForceGraph(
     const nodes: GraphNode[] = data.nodes.map((n, i) => {
       const angle = (i / data.nodes.length) * Math.PI * 2;
       const layerR = n.label === "Patient" ? 0 :
-        ["Call", "Topic"].includes(n.label) ? 200 :
-        ["AcousticProfile", "CognitiveScore", "Anomaly"].includes(n.label) ? 350 :
+        ["Call", "Topic", "Anomaly"].includes(n.label) ? 200 :
+        ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"].includes(n.label) ? 350 :
+        ["CognitiveScore", "EmotionalScore", "MotorScore"].includes(n.label) ? 350 :
         ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 480 : 580;
       return {
         ...n,
@@ -379,20 +388,38 @@ export default function PatientGraph() {
   const nodeCounts: Record<string, number> = {};
   (graphData?.nodes ?? []).forEach(n => { nodeCounts[n.label] = (nodeCounts[n.label] ?? 0) + 1; });
 
+  const callTimestamps = useMemo(() => {
+    if (!graphData) return new Map<string, number>();
+    const calls = graphData.nodes
+      .filter(n => n.label === "Call" && n.props.timestamp)
+      .sort((a, b) => Number(a.props.timestamp) - Number(b.props.timestamp));
+    const map = new Map<string, number>();
+    calls.forEach((c, i) => map.set(c.id, i + 1));
+    return map;
+  }, [graphData]);
+
   const nodeLabel = (n: GraphNode) => {
     switch (n.label) {
       case "Patient": return String(n.props.name ?? "P").slice(0, 3);
       case "Call": {
+        const num = callTimestamps.get(n.id) ?? 0;
         const ts = Number(n.props.timestamp ?? 0);
-        return ts > 0 ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Call";
+        const date = ts > 0 ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        return num ? `#${num} ${date}` : date || "Call";
       }
-      case "Topic": return String(n.props.name ?? "").slice(0, 12);
-      case "AcousticMarker": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 14);
-      case "ClinicalPattern": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 14);
+      case "Topic": return String(n.props.name ?? "").slice(0, 20);
+      case "SpeechRate": return `${Number(n.props.value ?? 0).toFixed(0)} wpm`;
+      case "PauseFrequency": return `${Number(n.props.value ?? 0).toFixed(1)}/min`;
+      case "HesitationCount": return `${n.props.value ?? 0} hesitations`;
+      case "WordFindingScore": return `WF: ${n.props.value ?? "?"}/100`;
+      case "CognitiveScore": return `Cog: ${Number(n.props.value ?? n.props.overallScore ?? 0).toFixed(0)}`;
+      case "EmotionalScore": return `Emo: ${Number(n.props.value ?? 0).toFixed(0)}`;
+      case "MotorScore": return `Motor: ${Number(n.props.value ?? 0).toFixed(0)}`;
+      case "AcousticMarker": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 18);
+      case "ClinicalPattern": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 18);
       case "Condition": return String(n.props.name ?? "").slice(0, 10);
-      case "Study": return String(n.props.source ?? n.props.title ?? "").slice(0, 16);
+      case "Study": return `${String(n.props.source ?? "Study").slice(0, 16)}`;
       case "Anomaly": return String(n.props.type ?? "anomaly").replace(/_/g, " ").slice(0, 14);
-      case "CognitiveScore": return `${n.props.overallScore ?? "?"}`;
       case "AcousticProfile": return `${n.props.speechRate ?? "?"}wpm`;
       default: return n.label;
     }
@@ -573,7 +600,7 @@ export default function PatientGraph() {
                   const dim = hasFocus && !connectedTo.has(n.id);
                   const r = s.r + (isSelected ? 3 : isHovered ? 2 : 0);
                   const label = nodeLabel(n);
-                  const showLabel = ["Patient", "Call", "Topic", "AcousticMarker", "ClinicalPattern", "Condition", "Study", "Anomaly"].includes(n.label);
+                  const showLabel = true;
 
                   return (
                     <g key={n.id}
@@ -596,9 +623,13 @@ export default function PatientGraph() {
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
                           fontSize={10} fill="#fff" fontWeight={700}>{String(n.props.name ?? "P").slice(0, 1)}</text>
                       )}
-                      {n.label === "CognitiveScore" && (
+                      {n.label === "Call" && (
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
-                          fontSize={7} fill="#fff" fontWeight={600}>{n.props.overallScore ?? "?"}</text>
+                          fontSize={8} fill="#fff" fontWeight={700}>{callTimestamps.get(n.id) ?? ""}</text>
+                      )}
+                      {(n.label === "CognitiveScore" || n.label === "EmotionalScore" || n.label === "MotorScore") && (
+                        <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
+                          fontSize={6} fill="#fff" fontWeight={600}>{Number(n.props.value ?? n.props.overallScore ?? 0).toFixed(0)}</text>
                       )}
                       {showLabel && (
                         <text x={n.x} y={n.y! + r + 10} textAnchor="middle"
@@ -617,12 +648,21 @@ export default function PatientGraph() {
               <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {Object.entries(NODE_STYLES)
                   .filter(([label]) => visibleTypes.has(label) && nodeCounts[label])
-                  .map(([label, s]) => (
-                    <div key={label} className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fill }} />
-                      <span className="text-[10px] text-muted-foreground">{label} <span className="text-foreground/50">{nodeCounts[label]}</span></span>
-                    </div>
-                  ))}
+                  .map(([label, s]) => {
+                    const displayName: Record<string, string> = {
+                      SpeechRate: "Speech Rate", PauseFrequency: "Pause Freq",
+                      HesitationCount: "Hesitations", WordFindingScore: "Word Finding",
+                      CognitiveScore: "Cognitive", EmotionalScore: "Emotional", MotorScore: "Motor",
+                      AcousticProfile: "Acoustic (legacy)", AcousticMarker: "Marker",
+                      ClinicalPattern: "Pattern",
+                    };
+                    return (
+                      <div key={label} className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fill }} />
+                        <span className="text-[10px] text-muted-foreground">{displayName[label] ?? label} <span className="text-foreground/50">{nodeCounts[label]}</span></span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
 
@@ -640,8 +680,25 @@ export default function PatientGraph() {
                   <span className="text-[13px] font-semibold text-foreground">{selected.label}</span>
                 </div>
                 <div className="space-y-3">
+                  {selected.label === "Study" && (
+                    <div className="p-2 bg-sky-50/70 rounded-md border border-sky-200/50 mb-2">
+                      <p className="text-[10px] font-medium text-sky-700">Found via Tavily clinical research</p>
+                    </div>
+                  )}
+                  {["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore"].includes(selected.label) && (
+                    <div className="p-2 bg-violet-50/70 rounded-md border border-violet-200/50 mb-2">
+                      <p className="text-[10px] font-medium text-violet-700">Measured by Modulate Velma-2</p>
+                    </div>
+                  )}
+                  {["CognitiveScore", "EmotionalScore", "MotorScore"].includes(selected.label) && (
+                    <div className="p-2 bg-emerald-50/70 rounded-md border border-emerald-200/50 mb-2">
+                      <p className="text-[10px] font-medium text-emerald-700">Scored by OpenAI + Reka analysis</p>
+                    </div>
+                  )}
                   {Object.entries(selected.props).map(([k, v]) => {
                     if (v === null || v === undefined || v === "") return null;
+                    const hiddenKeys = ["id", "patientId", "callId"];
+                    if (hiddenKeys.includes(k)) return null;
                     let display: string;
                     if (typeof v === "number" && (k.toLowerCase().includes("timestamp") || k.toLowerCase().includes("enrolled") || k.toLowerCase().includes("detected"))) {
                       display = new Date(v).toLocaleString();
@@ -703,12 +760,20 @@ export default function PatientGraph() {
                           <p className="text-[11px] font-medium text-foreground">{layer.label} <span className="text-muted-foreground font-normal">({count})</span></p>
                           <p className="text-[10px] text-muted-foreground">{layer.description}</p>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {layer.types.map(t => (
-                              <span key={t} className="flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
-                                <span className="text-[9px] text-muted-foreground">{t}</span>
-                              </span>
-                            ))}
+                            {layer.types.filter(t => t !== "AcousticProfile").map(t => {
+                              const dn: Record<string, string> = {
+                                SpeechRate: "Speech Rate", PauseFrequency: "Pause Freq",
+                                HesitationCount: "Hesitations", WordFindingScore: "Word Finding",
+                                CognitiveScore: "Cognitive", EmotionalScore: "Emotional", MotorScore: "Motor",
+                                AcousticMarker: "Marker", ClinicalPattern: "Pattern",
+                              };
+                              return (
+                                <span key={t} className="flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
+                                  <span className="text-[9px] text-muted-foreground">{dn[t] ?? t}</span>
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
                       );

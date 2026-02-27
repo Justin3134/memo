@@ -56,6 +56,12 @@ def ensure_constraints():
             s.run("CREATE CONSTRAINT marker_name IF NOT EXISTS FOR (m:AcousticMarker) REQUIRE m.name IS UNIQUE")
             s.run("CREATE CONSTRAINT pattern_name IF NOT EXISTS FOR (cp:ClinicalPattern) REQUIRE cp.name IS UNIQUE")
             s.run("CREATE CONSTRAINT condition_name IF NOT EXISTS FOR (cond:Condition) REQUIRE cond.name IS UNIQUE")
+            for label in ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore",
+                          "CognitiveScore", "EmotionalScore", "MotorScore"]:
+                try:
+                    s.run(f"CREATE CONSTRAINT {label.lower()}_callid IF NOT EXISTS FOR (n:{label}) REQUIRE n.callId IS UNIQUE")
+                except Exception:
+                    pass
         logger.info("Neo4j constraints ready")
     except Exception as e:
         logger.warning(f"Neo4j constraints skipped: {e}")
@@ -146,41 +152,101 @@ def upsert_patient(patient_id: str, name: str, phone: str, age: Optional[int] = 
         """, id=patient_id, name=name, phone=phone, age=age)
 
 
+def _interpret_speech_rate(v):
+    if v < 80: return f"Very slow ({v:.0f} wpm, normal: 120–150). Associated with cognitive slowing and processing delays."
+    if v < 100: return f"Below normal ({v:.0f} wpm, normal: 120–150). May indicate word-finding difficulty or fatigue."
+    if v > 180: return f"Elevated ({v:.0f} wpm, normal: 120–150). May indicate anxiety or pressured speech."
+    return f"Within normal range ({v:.0f} wpm)."
+
+def _interpret_pause_freq(v):
+    if v > 8: return f"Significantly elevated ({v:.1f}/min, normal: 2–4). Strongly associated with word-finding difficulty, an early MCI marker."
+    if v > 6: return f"Elevated ({v:.1f}/min, normal: 2–4). Associated with increased cognitive load during speech."
+    return f"Normal range ({v:.1f}/min)."
+
+def _interpret_hesitation(v):
+    if v > 10: return f"Frequent hesitations ({v}). Clusters of fillers (um, uh) can indicate memory retrieval difficulty."
+    if v > 5: return f"Moderate hesitations ({v}). Some difficulty with word retrieval."
+    return f"Minimal hesitations ({v})."
+
+def _interpret_cognitive(v):
+    if v < 55: return f"Concerning ({v:.0f}/100). Score below 55 suggests significant cognitive difficulty during conversation."
+    if v < 70: return f"Below baseline ({v:.0f}/100). Mild decline from expected performance."
+    return f"Stable ({v:.0f}/100)."
+
+def _interpret_emotional(v):
+    if v < 40: return f"Flat affect ({v:.0f}/100). Reduced emotional variability may indicate depression or apathy."
+    if v < 60: return f"Subdued ({v:.0f}/100). Lower emotional engagement than typical."
+    return f"Normal emotional range ({v:.0f}/100)."
+
+def _interpret_motor(v):
+    if v < 55: return f"Concerning ({v:.0f}/100). Motor speech difficulties may indicate neurological changes."
+    if v < 70: return f"Slightly reduced ({v:.0f}/100)."
+    return f"Normal ({v:.0f}/100)."
+
+
 def write_call_analysis(
     patient_id: str, call_id: str, duration: float, summary: str, timestamp: int,
     speech_rate: float, pause_frequency: float, hesitation_count: int, word_finding_score: float,
     cognitive_score: float, emotional_score: float, motor_score: float,
     entities: dict, anomaly_detected: bool, anomaly_type: Optional[str],
     anomaly_severity: Optional[str], anomaly_description: Optional[str],
-    transcript: str = "",
+    transcript: str = "", topic_phrases: list[str] | None = None,
 ):
     db = _db()
     with get_driver().session(database=db) as s:
         s.run("MERGE (p:Patient {id: $id})", id=patient_id)
 
-        # Call node + HAD_CALL
         s.run("""
             MERGE (c:Call {id: $cid})
             SET c.patientId=$pid, c.timestamp=$ts, c.duration=$dur, c.summary=$sum
             WITH c MATCH (p:Patient {id: $pid}) MERGE (p)-[:HAD_CALL]->(c)
         """, cid=call_id, pid=patient_id, ts=timestamp, dur=duration, sum=summary)
 
-        # AcousticProfile
+        # Individual acoustic metric nodes
         s.run("""
-            MERGE (a:AcousticProfile {callId: $cid})
-            SET a.speechRate=$sr, a.pauseFrequency=$pf,
-                a.hesitationCount=$hc, a.wordFindingScore=$wf
-            WITH a MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_ACOUSTIC]->(a)
-        """, cid=call_id, sr=speech_rate, pf=pause_frequency, hc=hesitation_count, wf=word_finding_score)
+            MERGE (n:SpeechRate {callId: $cid})
+            SET n.value=$v, n.unit='wpm', n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_METRIC]->(n)
+        """, cid=call_id, v=speech_rate, interp=_interpret_speech_rate(speech_rate))
 
-        # CognitiveScore
-        scores = [v for v in [cognitive_score, emotional_score, motor_score] if v is not None]
-        overall = sum(scores) / len(scores) if scores else 0
         s.run("""
-            MERGE (sc:CognitiveScore {callId: $cid})
-            SET sc.overallScore=$overall, sc.emotionalScore=$emo, sc.motorScore=$mot, sc.cognitiveScore=$cog
-            WITH sc MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_SCORE]->(sc)
-        """, cid=call_id, overall=overall, cog=cognitive_score, emo=emotional_score, mot=motor_score)
+            MERGE (n:PauseFrequency {callId: $cid})
+            SET n.value=$v, n.unit='/min', n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_METRIC]->(n)
+        """, cid=call_id, v=pause_frequency, interp=_interpret_pause_freq(pause_frequency))
+
+        s.run("""
+            MERGE (n:HesitationCount {callId: $cid})
+            SET n.value=$v, n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_METRIC]->(n)
+        """, cid=call_id, v=hesitation_count, interp=_interpret_hesitation(hesitation_count))
+
+        s.run("""
+            MERGE (n:WordFindingScore {callId: $cid})
+            SET n.value=$v, n.unit='/100', n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_METRIC]->(n)
+        """, cid=call_id, v=word_finding_score,
+             interp=f"Word retrieval ability: {word_finding_score:.0f}/100" + (
+                 ". Below 60 suggests difficulty accessing vocabulary." if word_finding_score < 60 else "."))
+
+        # Individual score nodes
+        s.run("""
+            MERGE (n:CognitiveScore {callId: $cid})
+            SET n.value=$v, n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_SCORE]->(n)
+        """, cid=call_id, v=cognitive_score, interp=_interpret_cognitive(cognitive_score))
+
+        s.run("""
+            MERGE (n:EmotionalScore {callId: $cid})
+            SET n.value=$v, n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_SCORE]->(n)
+        """, cid=call_id, v=emotional_score, interp=_interpret_emotional(emotional_score))
+
+        s.run("""
+            MERGE (n:MotorScore {callId: $cid})
+            SET n.value=$v, n.interpretation=$interp
+            WITH n MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_SCORE]->(n)
+        """, cid=call_id, v=motor_score, interp=_interpret_motor(motor_score))
 
         # Anomaly
         if anomaly_detected and anomaly_type:
@@ -191,36 +257,35 @@ def write_call_analysis(
             """, cid=call_id, atype=anomaly_type, sev=anomaly_severity or "medium",
                  desc=anomaly_description or "", ts=timestamp)
 
-        # Match acoustic profile to clinical markers
+        # Match individual metrics to clinical markers
         if pause_frequency > 6:
             s.run("""
-                MATCH (a:AcousticProfile {callId: $cid}), (m:AcousticMarker {name: 'HighPauseFrequency'})
-                MERGE (a)-[:MATCHES]->(m)
+                MATCH (n:PauseFrequency {callId: $cid}), (m:AcousticMarker {name: 'HighPauseFrequency'})
+                MERGE (n)-[:MATCHES]->(m)
             """, cid=call_id)
         if speech_rate > 0 and speech_rate < 100:
             s.run("""
-                MATCH (a:AcousticProfile {callId: $cid}), (m:AcousticMarker {name: 'SpeechRateDecline'})
-                MERGE (a)-[:MATCHES]->(m)
+                MATCH (n:SpeechRate {callId: $cid}), (m:AcousticMarker {name: 'SpeechRateDecline'})
+                MERGE (n)-[:MATCHES]->(m)
             """, cid=call_id)
         if emotional_score < 40:
             s.run("""
-                MATCH (a:AcousticProfile {callId: $cid}), (m:AcousticMarker {name: 'EmotionalFlatness'})
-                MERGE (a)-[:MATCHES]->(m)
+                MATCH (n:EmotionalScore {callId: $cid}), (m:AcousticMarker {name: 'EmotionalFlatness'})
+                MERGE (n)-[:MATCHES]->(m)
             """, cid=call_id)
         if hesitation_count > 10:
             s.run("""
-                MATCH (a:AcousticProfile {callId: $cid}), (m:AcousticMarker {name: 'HesitationBursts'})
-                MERGE (a)-[:MATCHES]->(m)
+                MATCH (n:HesitationCount {callId: $cid}), (m:AcousticMarker {name: 'HesitationBursts'})
+                MERGE (n)-[:MATCHES]->(m)
             """, cid=call_id)
 
-        # Extract topics from summary and create MENTIONED edges
-        if summary:
-            topics = _extract_topics(summary)
-            for topic in topics:
-                s.run("""
-                    MERGE (t:Topic {name: $tn})
-                    WITH t MATCH (c:Call {id: $cid}) MERGE (c)-[:MENTIONED]->(t)
-                """, tn=topic, cid=call_id)
+        # Topics: prefer OpenAI-generated phrases, fall back to extraction
+        topics = topic_phrases if topic_phrases else (_extract_topics(summary) if summary else [])
+        for topic in topics[:8]:
+            s.run("""
+                MERGE (t:Topic {name: $tn})
+                WITH t MATCH (c:Call {id: $cid}) MERGE (c)-[:MENTIONED]->(t)
+            """, tn=topic, cid=call_id)
 
 
 def build_temporal_chain(patient_id: str):
@@ -292,21 +357,6 @@ def _extract_topics(text: str) -> list[str]:
 def get_patient_graph(patient_id: str) -> dict:
     """Return the full knowledge graph for visualization."""
     with get_driver().session(database=_db()) as s:
-        # Core patient→call chain with metrics
-        result = s.run("""
-            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
-            OPTIONAL MATCH (c)-[:HAS_ACOUSTIC]->(a:AcousticProfile)
-            OPTIONAL MATCH (c)-[:HAS_SCORE]->(sc:CognitiveScore)
-            OPTIONAL MATCH (c)-[:TRIGGERED]->(an:Anomaly)
-            OPTIONAL MATCH (c)-[:MENTIONED]->(t:Topic)
-            OPTIONAL MATCH (a)-[:MATCHES]->(m:AcousticMarker)
-            OPTIONAL MATCH (m)-[:INDICATES]->(cp:ClinicalPattern)
-            OPTIONAL MATCH (cp)-[:ASSOCIATED_WITH]->(cond:Condition)
-            OPTIONAL MATCH (cond)-[:SUPPORTED_BY]->(st:Study)
-            RETURN p, c, a, sc, an, t, m, cp, cond, st
-            ORDER BY c.timestamp DESC
-        """, id=patient_id)
-
         nodes, links = {}, {}
 
         def add(node, label=None):
@@ -323,27 +373,89 @@ def get_patient_graph(patient_id: str) -> dict:
                 if key not in links:
                     links[key] = {"source": src, "target": tgt, "type": rel_type}
 
+        # Core: patient → calls → topics + anomalies
+        result = s.run("""
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
+            OPTIONAL MATCH (c)-[:TRIGGERED]->(an:Anomaly)
+            OPTIONAL MATCH (c)-[:MENTIONED]->(t:Topic)
+            RETURN p, c, an, t
+            ORDER BY c.timestamp DESC
+        """, id=patient_id)
         for rec in result:
             p = add(rec["p"], "Patient")
             c = add(rec["c"], "Call")
-            a = add(rec["a"], "AcousticProfile")
-            sc = add(rec["sc"], "CognitiveScore")
             an = add(rec["an"], "Anomaly")
             t = add(rec["t"], "Topic")
+            link(p, c, "HAD_CALL")
+            link(c, an, "TRIGGERED")
+            link(c, t, "MENTIONED")
+
+        # Individual metric nodes (new separate types)
+        for label in ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore"]:
+            metric_res = s.run(f"""
+                MATCH (p:Patient {{id: $id}})-[:HAD_CALL]->(c:Call)-[:HAS_METRIC]->(n:{label})
+                OPTIONAL MATCH (n)-[:MATCHES]->(m:AcousticMarker)
+                RETURN c, n, m
+            """, id=patient_id)
+            for rec in metric_res:
+                c = add(rec["c"], "Call")
+                n = add(rec["n"], label)
+                m = add(rec["m"], "AcousticMarker")
+                link(c, n, "HAS_METRIC")
+                link(n, m, "MATCHES")
+
+        # Individual score nodes
+        for label in ["CognitiveScore", "EmotionalScore", "MotorScore"]:
+            score_res = s.run(f"""
+                MATCH (p:Patient {{id: $id}})-[:HAD_CALL]->(c:Call)-[:HAS_SCORE]->(n:{label})
+                OPTIONAL MATCH (n)-[:MATCHES]->(m:AcousticMarker)
+                RETURN c, n, m
+            """, id=patient_id)
+            for rec in score_res:
+                c = add(rec["c"], "Call")
+                n = add(rec["n"], label)
+                m = add(rec["m"], "AcousticMarker")
+                link(c, n, "HAS_SCORE")
+                link(n, m, "MATCHES")
+
+        # Clinical knowledge chain: Marker → Pattern → Condition → Study
+        clinical = s.run("""
+            MATCH (m:AcousticMarker)-[:INDICATES]->(cp:ClinicalPattern)-[:ASSOCIATED_WITH]->(cond:Condition)
+            OPTIONAL MATCH (cond)-[:SUPPORTED_BY]->(st:Study)
+            WHERE m.name IN ['HighPauseFrequency','SpeechRateDecline','EmotionalFlatness','HesitationBursts','TopicRepetition']
+            RETURN m, cp, cond, st
+        """)
+        for rec in clinical:
             m = add(rec["m"], "AcousticMarker")
             cp = add(rec["cp"], "ClinicalPattern")
             cond = add(rec["cond"], "Condition")
             st = add(rec["st"], "Study")
-
-            link(p, c, "HAD_CALL")
-            link(c, a, "HAS_ACOUSTIC")
-            link(c, sc, "HAS_SCORE")
-            link(c, an, "TRIGGERED")
-            link(c, t, "MENTIONED")
-            link(a, m, "MATCHES")
             link(m, cp, "INDICATES")
             link(cp, cond, "ASSOCIATED_WITH")
             link(cond, st, "SUPPORTED_BY")
+
+        # Anomaly → Study (Tavily research)
+        anomaly_research = s.run("""
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:TRIGGERED]->(an:Anomaly)-[:SUPPORTED_BY]->(st:Study)
+            RETURN an, st
+        """, id=patient_id)
+        for rec in anomaly_research:
+            an = add(rec["an"], "Anomaly")
+            st = add(rec["st"], "Study")
+            link(an, st, "SUPPORTED_BY")
+
+        # Legacy AcousticProfile nodes (from old data before migration)
+        legacy = s.run("""
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:HAS_ACOUSTIC]->(a:AcousticProfile)
+            OPTIONAL MATCH (a)-[:MATCHES]->(m:AcousticMarker)
+            RETURN c, a, m
+        """, id=patient_id)
+        for rec in legacy:
+            c = add(rec["c"], "Call")
+            a = add(rec["a"], "AcousticProfile")
+            m = add(rec["m"], "AcousticMarker")
+            link(c, a, "HAS_ACOUSTIC")
+            link(a, m, "MATCHES")
 
         # FOLLOWED_BY edges
         chain = s.run("""
@@ -361,9 +473,14 @@ def get_patient_graph(patient_id: str) -> dict:
 def get_timeline(patient_id: str) -> list[dict]:
     with get_driver().session(database=_db()) as s:
         result = s.run("""
-            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:HAS_SCORE]->(sc:CognitiveScore)
-            RETURN c.timestamp AS ts, c.id AS callId, sc.overallScore AS cognitive,
-                   sc.emotionalScore AS emotional, sc.motorScore AS motor
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
+            OPTIONAL MATCH (c)-[:HAS_SCORE]->(cog:CognitiveScore)
+            OPTIONAL MATCH (c)-[:HAS_SCORE]->(emo:EmotionalScore)
+            OPTIONAL MATCH (c)-[:HAS_SCORE]->(mot:MotorScore)
+            RETURN c.timestamp AS ts, c.id AS callId,
+                   coalesce(cog.value, cog.overallScore) AS cognitive,
+                   coalesce(emo.value, cog.emotionalScore) AS emotional,
+                   coalesce(mot.value, cog.motorScore) AS motor
             ORDER BY c.timestamp ASC
         """, id=patient_id)
         return [dict(r) for r in result]

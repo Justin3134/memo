@@ -70,8 +70,9 @@ Return JSON:
   "anomalyDetected": <true|false>,
   "anomalyType": "<word_finding_decline|memory_gaps|emotional_distress|physical_concern|cognitive_decline|null>",
   "anomalySeverity": "<low|medium|high|null>",
-  "anomalyDescription": "<plain English for family or null>",
-  "healthMentions": ["<topics>"],
+  "anomalyDescription": "<detailed evidence-based description: 3-5 sentences. Reference SPECIFIC voice metrics from Modulate (e.g. 'Speech rate measured at X wpm, pause frequency at Y/min'). Explain what these acoustic patterns may indicate clinically (e.g. 'Elevated pause frequency above 6/min is associated with word-finding difficulty, an early marker of MCI'). Connect to potential conditions (dementia, depression, cognitive decline). Explain WHY this matters for early detection. Never be vague — use the actual numbers.>",
+  "healthMentions": ["<meaningful multi-word phrases describing what was discussed, e.g. 'difficulty sleeping', 'forgetting recent events', 'trouble with daily tasks' — NOT single words>"],
+  "topicPhrases": ["<3-6 meaningful conversation topic phrases that capture key themes, e.g. 'Struggling with computer tasks', 'Only slept 3 hours', 'Missing daughter's calls' — multi-word, descriptive>"],
   "conversationSignals": [{{"quote":"<verbatim>","signal":"<label>","explanation":"<one sentence>"}}],
   "memories": [{{"category":"<daily_life|health|family|mood>","content":"<memory>","entities":[],"sentiment":"<positive|neutral|negative>"}}],
   "videoGuidanceTopic": "<topic or null>",
@@ -338,6 +339,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             logger.info("Reka escalated: anomaly detected by second opinion")
 
     # Step 6: Neo4j — write full analysis to knowledge graph
+    topic_phrases = analysis.get("topicPhrases") or analysis.get("healthMentions") or []
     try:
         neo4j.write_call_analysis(
             patient_id=patient_id, call_id=call_id, duration=duration,
@@ -354,6 +356,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             anomaly_type=analysis.get("anomalyType"),
             anomaly_severity=analysis.get("anomalySeverity"),
             anomaly_description=analysis.get("anomalyDescription"),
+            topic_phrases=topic_phrases,
         )
         neo4j.build_temporal_chain(patient_id)
         neo4j.build_cross_patient_similarity(patient_id)

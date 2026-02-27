@@ -3,9 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
-import { ArrowUpRight, RotateCcw, Search, ExternalLink, ShieldCheck, ShieldAlert, Brain } from "lucide-react";
-
-const BACKEND = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000";
+import { ArrowUpRight, RotateCcw, ExternalLink, ShieldCheck, ShieldAlert, Brain } from "lucide-react";
 
 function VoiceMetric({ label, value, unit, status }: { label: string; value: string; unit: string; status: "ok" | "watch" | "warn" | "none" }) {
   const dot = status === "warn" ? "bg-memo-red" : status === "watch" ? "bg-memo-amber" : status === "ok" ? "bg-memo-green" : "bg-muted-foreground/20";
@@ -46,88 +44,15 @@ const signalLabel = (s: string) => {
   return map[s] ?? s.replace(/_/g, " ");
 };
 
-// Extract a short first-sentence summary from description
-const shortSummary = (desc: string): string => {
+const formatDescription = (desc: string): string => {
   if (!desc) return "";
-  const first = desc.split(/\.\s+/)[0];
-  return first.length > 120 ? first.slice(0, 117) + "…" : first + ".";
+  return desc.length > 400 ? desc.slice(0, 397) + "…" : desc;
 };
 
 const severityDot = (s: string) =>
   s === "high" ? "bg-memo-red" : s === "medium" ? "bg-memo-amber" : "bg-memo-green";
 const severityTextColor = (s: string) =>
   s === "high" ? "text-memo-red" : s === "medium" ? "text-memo-amber" : "text-memo-green";
-
-function SensoSearch({ patientId }: { patientId?: string }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Array<{ title?: string; body?: string; content?: string; text?: string }>>([]);
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
-
-  const runSearch = async () => {
-    if (!query.trim() || !patientId) return;
-    setSearching(true);
-    try {
-      const res = await fetch(`${BACKEND}/search/memory`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ patient_id: patientId, query: query.trim() }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.results ?? []);
-      }
-      setSearched(true);
-    } catch { /* silent */ }
-    finally { setSearching(false); }
-  };
-
-  return (
-    <div className="p-6 border-b border-border">
-      <div className="flex items-center gap-1.5 mb-3">
-        <Brain className="w-3.5 h-3.5 text-indigo-500" strokeWidth={2} />
-        <p className="text-[11px] font-medium text-indigo-600 uppercase tracking-wide">Senso Memory Search</p>
-      </div>
-      <p className="text-[10px] text-muted-foreground mb-2.5 leading-relaxed">
-        Search across all past conversations
-      </p>
-      <div className="flex gap-1.5">
-        <div className="flex-1 relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50" strokeWidth={2} />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && runSearch()}
-            placeholder="Has she mentioned falls?"
-            className="w-full pl-7 pr-2 py-1.5 text-[11px] border border-border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-200 focus:border-indigo-300 transition-colors placeholder:text-muted-foreground/40"
-          />
-        </div>
-        <button
-          onClick={runSearch}
-          disabled={searching || !query.trim()}
-          className="px-2.5 py-1.5 text-[10px] font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-40 transition-colors shrink-0"
-        >
-          {searching ? "…" : "Ask"}
-        </button>
-      </div>
-      {searched && results.length === 0 && (
-        <p className="text-[10px] text-muted-foreground mt-2">No matches found.</p>
-      )}
-      {results.length > 0 && (
-        <div className="mt-2.5 space-y-1.5">
-          {results.slice(0, 3).map((r, i) => (
-            <div key={i} className="p-2 bg-indigo-50/50 rounded-md border border-indigo-100/50">
-              {r.title && <p className="text-[10px] font-medium text-indigo-700 mb-0.5">{r.title}</p>}
-              <p className="text-[10px] text-foreground/65 leading-relaxed">
-                {(r.body || r.content || r.text || "").slice(0, 150)}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function HealthSignals() {
   const navigate = useNavigate();
@@ -268,7 +193,7 @@ export default function HealthSignals() {
               <div className="space-y-3">
                 {alerts.slice(0, 6).filter(a => !dismissed.has(a._id)).map(alert => {
                   const label = signalLabel(alert.signalType ?? "");
-                  const summary = shortSummary(alert.description ?? "");
+                  const summary = formatDescription(alert.description ?? "");
                   const quotes = alert.evidenceQuotes ?? [];
                   const metrics = alert.evidenceMetrics;
                   const research = alert.researchItems;
@@ -609,9 +534,6 @@ export default function HealthSignals() {
               ))}
             </div>
           </div>
-
-          {/* Senso semantic search */}
-          <SensoSearch patientId={patient?._id} />
 
           {memories.length > 0 && (
             <div className="p-6">

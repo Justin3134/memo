@@ -23,5 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/memo.db
+
 # Environment variables
 .env

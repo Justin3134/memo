@@ -138,13 +138,13 @@ async def _yutori_research(query: str, max_wait: int = YUTORI_MAX_WAIT) -> list[
         return []
 
 
-def fetch_research(anomaly_type: str) -> list[dict]:
+async def fetch_research(anomaly_type: str) -> list[dict]:
     key = os.environ.get("YUTORI_API_KEY")
     if not key:
         return []
     query = f"early detection {anomaly_type.replace('_', ' ')} elderly voice cognitive decline clinical research 2025"
     try:
-        results = asyncio.run(_yutori_research(query, max_wait=90))
+        results = await _yutori_research(query, max_wait=90)
         return [
             {
                 "title": r.get("title", ""),
@@ -164,35 +164,32 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
                        recording_url: str | None = None) -> dict:
     timestamp = int(time.time() * 1000)
 
-    # Step 1: Real audio analysis (if recording available from Vapi)
-    real_audio = None
+    # Step 1: Real audio analysis via Whisper word timestamps (if Vapi recording available)
+    whisper_signals = None
     if recording_url:
-        logger.info(f"Analyzing audio recording: {recording_url[:80]}...")
-        real_audio = audio_analysis.analyze_recording(recording_url, duration)
-        if real_audio and real_audio.get("audio_available"):
-            logger.info(f"Audio features extracted: rate={real_audio['speech_rate_wpm']}wpm, "
-                        f"pauses={real_audio['pause_frequency_per_min']}/min, "
-                        f"fluency={real_audio['fluency_score']}, "
-                        f"tremor={real_audio['vocal_tremor']}")
+        logger.info(f"Analyzing audio via Whisper: {recording_url[:80]}...")
+        whisper_signals = audio_analysis.analyze_recording(recording_url, duration)
+        if whisper_signals and whisper_signals.get("audio_available"):
+            logger.info(f"Whisper audio features: rate={whisper_signals['speech_rate_wpm']}wpm, "
+                        f"pauses={whisper_signals['pause_frequency_per_min']}/min, "
+                        f"fluency={whisper_signals['fluency_score']}, "
+                        f"tremor={whisper_signals['vocal_tremor']}")
         else:
-            logger.warning("Audio analysis returned no results, falling back to transcript")
-            real_audio = None
+            logger.warning("Whisper analysis returned no results, falling back to transcript")
+            whisper_signals = None
 
     # Step 2: GLiNER2 entity extraction + OpenAI cognitive analysis
     entities = extract_entities(transcript)
     analysis = analyze_with_openai(transcript, duration, entities, baseline)
 
-    # Step 3: Merge signals — real audio takes priority over OpenAI estimates
-    if real_audio:
-        speech_rate = float(real_audio["speech_rate_wpm"])
-        pause_freq = float(real_audio["pause_frequency_per_min"])
-        hesitations = int(real_audio["hesitation_events"])
+    # Step 3: Map signals through Modulate ToxMod schema
+    # Real Whisper-derived signals take priority over transcript heuristics
+    if whisper_signals:
+        acoustic_signals = modulate.map_whisper_to_toxmod(whisper_signals)
+        speech_rate = float(whisper_signals["speech_rate_wpm"])
+        pause_freq = float(whisper_signals["pause_frequency_per_min"])
+        hesitations = int(whisper_signals["hesitation_events"])
         emotional = float(analysis.get("emotionalScore", 70))
-        acoustic_signals = {
-            **real_audio,
-            "source": "modulate_audio_analysis",
-            "api_key_configured": bool(os.environ.get("MODULATE_API_KEY")),
-        }
     else:
         speech_rate = float(analysis.get("speechRate", 120))
         pause_freq = float(analysis.get("pauseFrequency", 2.0))
@@ -233,7 +230,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
     # Step 5: Yutori — fetch clinical research for anomalies
     research = []
     if analysis.get("anomalyDetected") and analysis.get("anomalyType"):
-        research = fetch_research(analysis["anomalyType"])
+        research = await fetch_research(analysis["anomalyType"])
         if research:
             try: neo4j.attach_research(call_id, research)
             except Exception as e: logger.error(f"Research attach failed: {e}")

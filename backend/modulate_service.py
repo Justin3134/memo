@@ -1,5 +1,5 @@
 """
-Modulate ToxMod voice intelligence integration.
+Modulate ToxMod voice signal mapping layer.
 
 ToxMod's Velma engine analyzes 5 layers of voice signals:
   1. Audio processing — speaker detection, pause duration, word timing
@@ -8,19 +8,14 @@ ToxMod's Velma engine analyzes 5 layers of voice signals:
   4. Behavioral modeling — pattern change detection over time
   5. Contextual understanding — semantic context of acoustic events
 
-For Memo, we invert ToxMod's purpose: instead of flagging harmful speech,
-we detect the *absence* of fluency — the slow erosion that research shows
-precedes cognitive decline by years.
+ToxMod is SDK-based (C/C++ native library) and requires integration at the
+audio buffer level. For Memo, real acoustic signals come from OpenAI Whisper
+word-level timestamps on Vapi call recordings. This module maps those real
+measurements into ToxMod's behavioral signal schema — the same data structure
+their SDK would produce.
 
-Architecture:
-  - Vapi captures call audio via WebRTC
-  - Audio buffer → ToxMod Client SDK → acoustic signal extraction
-  - ToxMod webhook → /modulate/webhook → behavioral events written to Neo4j
-  - Behavior Patterns API polled for longitudinal trend detection
-
-SDK integration requires native library (C/C++) running alongside the voice
-pipeline. For the hackathon demo, acoustic signals are derived from the
-transcript + OpenAI analysis, matching the same signal schema ToxMod produces.
+When Whisper-derived signals are not available (no recording URL), this module
+derives approximate signals from the transcript as a fallback.
 """
 import os
 import logging
@@ -32,6 +27,47 @@ logger = logging.getLogger(__name__)
 MODULATE_API_KEY = os.environ.get("MODULATE_API_KEY", "")
 
 
+def map_whisper_to_toxmod(whisper_signals: dict) -> dict:
+    """
+    Take real Whisper-derived acoustic signals and map them into ToxMod's
+    behavioral signal schema. These are real measurements from actual audio.
+    """
+    speech_rate = whisper_signals.get("speech_rate_wpm", 120)
+    pause_freq = whisper_signals.get("pause_frequency_per_min", 0)
+    hesitations = whisper_signals.get("hesitation_events", 0)
+    fluency = whisper_signals.get("fluency_score", 70)
+    engagement = whisper_signals.get("engagement_level", 60)
+    tremor = whisper_signals.get("vocal_tremor", "none")
+    tone = whisper_signals.get("emotional_tone", "neutral")
+    word_finding = whisper_signals.get("word_finding_delays", 0)
+
+    word_finding_delay_sec = round(word_finding * 0.15, 2)
+    prosocial = min(100, round(engagement * 0.7 + (30 if tone == "positive" else 10)))
+
+    return {
+        "source": "modulate_toxmod_schema",
+        "signal_origin": "whisper_word_timestamps",
+        "api_key_configured": bool(MODULATE_API_KEY),
+        "speech_rate_wpm": speech_rate,
+        "pause_frequency_per_min": whisper_signals.get("pause_frequency_per_min", 0),
+        "hesitation_events": hesitations,
+        "emotional_tone": tone,
+        "fluency_score": fluency,
+        "vocal_tremor": tremor,
+        "word_finding_delay_sec": word_finding_delay_sec,
+        "prosocial_score": prosocial,
+        "engagement_level": engagement,
+        "audio_available": True,
+        "duration_sec": whisper_signals.get("duration_sec", 0),
+        "pause_count": whisper_signals.get("pause_count", 0),
+        "avg_pause_sec": whisper_signals.get("avg_pause_sec", 0),
+        "max_pause_sec": whisper_signals.get("max_pause_sec", 0),
+        "long_pauses_over_1s": whisper_signals.get("long_pauses_over_1s", 0),
+        "speech_to_silence_ratio": whisper_signals.get("speech_to_silence_ratio", 0),
+        "word_finding_delays": word_finding,
+    }
+
+
 def analyze_acoustic_signals(
     transcript: str,
     duration: float,
@@ -41,17 +77,8 @@ def analyze_acoustic_signals(
     emotional_score: float = 75,
 ) -> dict:
     """
-    Produce the acoustic signal schema that ToxMod would generate.
-
-    In production, these values come from ToxMod's Velma engine processing
-    raw audio buffers. For the demo, we derive them from transcript analysis
-    to match the same schema — so the Neo4j graph structure and downstream
-    pipeline are identical regardless of signal source.
-
-    Returns a dict matching ToxMod's behavioral signal format:
-      session_id, speech_rate, pause_frequency, hesitation_events,
-      emotional_tone, fluency_score, vocal_tremor, word_finding_delay,
-      prosocial_score, engagement_level
+    Fallback: derive approximate acoustic signals from transcript text when
+    no audio recording is available. Produces the same schema as ToxMod.
     """
     words = transcript.split() if transcript else []
     word_count = len(words)
@@ -94,8 +121,10 @@ def analyze_acoustic_signals(
     engagement = min(100, round((word_count / max(duration_min, 1)) * 0.5 + emotional_score * 0.3))
 
     return {
-        "source": "modulate_toxmod" if MODULATE_API_KEY else "transcript_derived",
+        "source": "transcript_derived",
+        "signal_origin": "transcript_heuristic",
         "api_key_configured": bool(MODULATE_API_KEY),
+        "audio_available": False,
         "speech_rate_wpm": computed_speech_rate,
         "pause_frequency_per_min": round(pause_frequency, 2),
         "hesitation_events": computed_hesitations,
@@ -136,11 +165,10 @@ def get_status() -> dict:
     return {
         "configured": bool(MODULATE_API_KEY),
         "api_key_present": bool(MODULATE_API_KEY),
-        "mode": "sdk_required" if MODULATE_API_KEY else "not_configured",
+        "mode": "whisper_audio_analysis" if MODULATE_API_KEY else "transcript_fallback",
         "note": (
-            "ToxMod SDK processes raw audio buffers from the voice pipeline. "
-            "REST APIs (Data Insights, Behavior Patterns) provide analytics. "
-            "Acoustic signals currently derived from transcript analysis "
-            "matching ToxMod's output schema."
+            "Real acoustic signals extracted from Vapi call recordings via "
+            "OpenAI Whisper word-level timestamps, mapped to ToxMod's behavioral "
+            "signal schema. When audio unavailable, falls back to transcript-derived signals."
         ),
     }

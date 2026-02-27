@@ -174,11 +174,13 @@ def write_call_analysis(
         """, cid=call_id, sr=speech_rate, pf=pause_frequency, hc=hesitation_count, wf=word_finding_score)
 
         # CognitiveScore
+        scores = [v for v in [cognitive_score, emotional_score, motor_score] if v is not None]
+        overall = sum(scores) / len(scores) if scores else 0
         s.run("""
             MERGE (sc:CognitiveScore {callId: $cid})
-            SET sc.overallScore=$cog, sc.emotionalScore=$emo, sc.motorScore=$mot
+            SET sc.overallScore=$overall, sc.emotionalScore=$emo, sc.motorScore=$mot, sc.cognitiveScore=$cog
             WITH sc MATCH (c:Call {id: $cid}) MERGE (c)-[:HAS_SCORE]->(sc)
-        """, cid=call_id, cog=cognitive_score, emo=emotional_score, mot=motor_score)
+        """, cid=call_id, overall=overall, cog=cognitive_score, emo=emotional_score, mot=motor_score)
 
         # Anomaly
         if anomaly_detected and anomaly_type:

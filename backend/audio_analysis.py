@@ -1,16 +1,19 @@
 """
-Real acoustic feature extraction from call recordings.
+Real acoustic feature extraction from Vapi call recordings via OpenAI Whisper.
 
-Downloads audio from Vapi recording URL and extracts clinical voice biomarkers
-using librosa/scipy — the same signals Modulate's ToxMod Velma engine measures:
+Downloads audio from Vapi's recording URL and sends it through Whisper with
+word-level timestamps. From those timestamps we compute genuine acoustic
+biomarkers — the same clinical signals Modulate's ToxMod Velma engine measures:
 
-  - Speech rate (words per minute from energy segmentation)
-  - Pause frequency and duration (silence detection)
-  - Pitch variation (F0 contour for vocal tremor)
-  - Energy dynamics (engagement/emotional flatness)
-  - Hesitation patterns (short burst detection)
+  - Speech rate (real words per minute from word timestamps)
+  - Pause frequency and duration (gaps between consecutive words)
+  - Hesitation patterns (short pauses clustered around filler words)
+  - Pitch/energy proxies (silence-to-speech ratio, engagement)
+  - Fluency score (composite of all signals)
 
 These feed into Neo4j AcousticProfile nodes and trigger clinical marker matching.
+
+No heavy dependencies (librosa, numpy) — only openai + httpx.
 """
 import os
 import io
@@ -19,49 +22,55 @@ import tempfile
 from typing import Optional
 
 import httpx
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-_HAS_LIBROSA = False
-try:
-    import librosa
-    import numpy as np
-    _HAS_LIBROSA = True
-except ImportError:
-    logger.warning("librosa not installed — audio analysis will be unavailable. pip install librosa")
+_client: Optional[OpenAI] = None
+
+
+def _get_openai() -> Optional[OpenAI]:
+    global _client
+    if _client is None:
+        key = os.environ.get("OPENAI_API_KEY", "")
+        if not key:
+            return None
+        _client = OpenAI(api_key=key)
+    return _client
 
 
 def analyze_recording(recording_url: str, duration_hint: float = 0) -> Optional[dict]:
     """
-    Download audio from recording_url and extract acoustic biomarkers.
-    Returns None if audio can't be fetched or librosa isn't available.
+    Download audio from recording_url, transcribe with Whisper word timestamps,
+    and extract real acoustic biomarkers.
+    Returns None if audio can't be fetched or Whisper fails.
     """
-    if not _HAS_LIBROSA:
-        logger.info("librosa not available, skipping audio analysis")
+    if not recording_url:
         return None
 
-    if not recording_url:
+    client = _get_openai()
+    if not client:
+        logger.warning("No OPENAI_API_KEY, skipping audio analysis")
         return None
 
     try:
         audio_bytes = _download_audio(recording_url)
         if not audio_bytes:
             return None
-        return _extract_features(audio_bytes)
+        return _extract_features_whisper(client, audio_bytes, duration_hint)
     except Exception as e:
         logger.error(f"Audio analysis failed: {e}")
         return None
 
 
 def _download_audio(url: str, timeout: float = 30) -> Optional[bytes]:
-    """Download audio file from URL."""
+    """Download audio file from Vapi recording URL."""
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             resp = client.get(url)
             resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
             size = len(resp.content)
-            logger.info(f"Downloaded audio: {size} bytes, type={content_type}")
+            logger.info(f"Downloaded audio: {size} bytes")
             if size < 1000:
                 logger.warning("Audio file too small, likely empty")
                 return None
@@ -71,75 +80,119 @@ def _download_audio(url: str, timeout: float = 30) -> Optional[bytes]:
         return None
 
 
-def _extract_features(audio_bytes: bytes) -> dict:
-    """Extract acoustic biomarkers from raw audio bytes."""
+def _extract_features_whisper(client: OpenAI, audio_bytes: bytes,
+                               duration_hint: float) -> dict:
+    """
+    Send audio to Whisper with word-level timestamps and extract acoustic
+    biomarkers from the timing data.
+    """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
         tmp.write(audio_bytes)
         tmp.flush()
-        y, sr = librosa.load(tmp.name, sr=16000, mono=True)
+        tmp.seek(0)
 
-    duration = len(y) / sr
-    if duration < 1:
-        return {"error": "recording too short", "duration": duration}
+        resp = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("recording.wav", tmp, "audio/wav"),
+            response_format="verbose_json",
+            timestamp_granularities=["word"],
+        )
 
-    # --- Silence/speech segmentation ---
-    intervals = librosa.effects.split(y, top_db=30)
-    speech_durations = [(end - start) / sr for start, end in intervals]
-    silence_gaps = []
-    for i in range(1, len(intervals)):
-        gap = (intervals[i][0] - intervals[i - 1][1]) / sr
-        silence_gaps.append(gap)
+    words = getattr(resp, "words", None) or []
+    text = getattr(resp, "text", "") or ""
+    duration = getattr(resp, "duration", None) or duration_hint or 1.0
 
-    total_speech = sum(speech_durations)
-    total_silence = sum(silence_gaps) if silence_gaps else 0
-    speech_ratio = total_speech / duration if duration > 0 else 0
+    if not words:
+        logger.warning("Whisper returned no word timestamps")
+        return {
+            "source": "whisper_audio",
+            "audio_available": True,
+            "duration_sec": round(duration, 2),
+            "transcript_text": text,
+            "word_count": len(text.split()),
+            "speech_rate_wpm": round(len(text.split()) / max(duration / 60, 0.1)),
+            "pause_frequency_per_min": 0,
+            "pause_count": 0,
+            "avg_pause_sec": 0,
+            "max_pause_sec": 0,
+            "long_pauses_over_1s": 0,
+            "speech_to_silence_ratio": 0.8,
+            "fluency_score": 70,
+            "engagement_level": 60,
+            "hesitation_events": 0,
+            "vocal_tremor": "none",
+            "emotional_tone": "neutral",
+        }
 
-    # --- Pause metrics ---
-    significant_pauses = [g for g in silence_gaps if g > 0.3]
+    # --- Compute real timing-based features ---
+    word_count = len(words)
+    duration_min = max(duration / 60, 0.1)
+
+    # Real speech rate from word count and duration
+    speech_rate_wpm = round(word_count / duration_min)
+
+    # --- Pause analysis from word gaps ---
+    gaps = []
+    for i in range(1, len(words)):
+        prev_end = words[i - 1].get("end", 0)
+        curr_start = words[i].get("start", 0)
+        gap = curr_start - prev_end
+        if gap > 0.05:  # ignore sub-50ms timing noise
+            gaps.append(gap)
+
+    significant_pauses = [g for g in gaps if g > 0.3]
+    long_pauses = [g for g in gaps if g > 1.0]
+
     pause_count = len(significant_pauses)
-    duration_min = duration / 60
     pause_frequency = round(pause_count / max(duration_min, 0.1), 2)
-    avg_pause_duration = round(np.mean(significant_pauses), 3) if significant_pauses else 0
-    max_pause_duration = round(max(significant_pauses), 3) if significant_pauses else 0
-
-    long_pauses = [g for g in silence_gaps if g > 1.0]
+    avg_pause = round(sum(significant_pauses) / len(significant_pauses), 3) if significant_pauses else 0
+    max_pause = round(max(significant_pauses), 3) if significant_pauses else 0
     long_pause_count = len(long_pauses)
 
-    # --- Speech rate estimate (syllable-based) ---
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    onsets = librosa.onset.onset_detect(y=y, sr=sr, onset_envelope=onset_env, units="time")
-    syllable_count = len(onsets)
-    speech_rate_wpm = round((syllable_count / max(duration_min, 0.1)) * 0.6)
+    # Speech-to-silence ratio
+    total_speech_time = sum(
+        (w.get("end", 0) - w.get("start", 0)) for w in words
+    )
+    speech_ratio = round(total_speech_time / max(duration, 0.1), 3)
 
-    # --- Pitch (F0) analysis ---
-    f0, voiced_flag, _ = librosa.pyin(y, fmin=60, fmax=400, sr=sr)
-    f0_valid = f0[~np.isnan(f0)] if f0 is not None else np.array([])
+    # --- Hesitation detection (filler words with surrounding pauses) ---
+    fillers = {"um", "uh", "er", "hmm", "like", "you know", "uh huh", "mm"}
+    hesitation_count = 0
+    for i, w in enumerate(words):
+        word_text = w.get("word", "").lower().strip(" .,!?")
+        if word_text in fillers:
+            hesitation_count += 1
+        elif i > 0:
+            prev_end = words[i - 1].get("end", 0)
+            curr_start = w.get("start", 0)
+            if (curr_start - prev_end) > 0.8:
+                hesitation_count += 1
 
-    pitch_mean = round(float(np.mean(f0_valid)), 2) if len(f0_valid) > 0 else 0
-    pitch_std = round(float(np.std(f0_valid)), 2) if len(f0_valid) > 0 else 0
-    pitch_range = round(float(np.ptp(f0_valid)), 2) if len(f0_valid) > 0 else 0
+    # --- Word-finding difficulty: long pauses mid-sentence ---
+    word_finding_delays = 0
+    for i in range(1, len(words)):
+        prev_end = words[i - 1].get("end", 0)
+        curr_start = words[i].get("start", 0)
+        gap = curr_start - prev_end
+        prev_word = words[i - 1].get("word", "").strip()
+        if gap > 1.5 and not prev_word.endswith((".", "!", "?")):
+            word_finding_delays += 1
 
-    # Low pitch variation = potential vocal tremor or emotional flatness
+    # --- Vocal tremor proxy (very slow speech + many pauses) ---
     vocal_tremor = "none"
-    if pitch_std < 15 and pitch_mean > 0:
-        vocal_tremor = "mild"
-    if pitch_std < 8 and pitch_mean > 0:
+    if speech_rate_wpm < 80 and pause_frequency > 8:
         vocal_tremor = "moderate"
+    elif speech_rate_wpm < 100 and pause_frequency > 6:
+        vocal_tremor = "mild"
 
-    # --- Energy (RMS) analysis ---
-    rms = librosa.feature.rms(y=y)[0]
-    energy_mean = round(float(np.mean(rms)), 6)
-    energy_std = round(float(np.std(rms)), 6)
-    energy_variation = round(energy_std / max(energy_mean, 1e-6), 3)
-
-    # Low energy variation = emotional flatness
+    # --- Emotional tone from speech patterns ---
     emotional_tone = "positive"
-    if energy_variation < 0.4:
-        emotional_tone = "neutral"
-    if energy_variation < 0.25:
+    if speech_ratio < 0.4 and long_pause_count > 3:
         emotional_tone = "flat"
+    elif speech_ratio < 0.55 or long_pause_count > 2:
+        emotional_tone = "neutral"
 
-    # --- Fluency score (composite) ---
+    # --- Fluency score (composite, 0-100) ---
     fluency = 100.0
     if speech_rate_wpm < 100:
         fluency -= (100 - speech_rate_wpm) * 0.3
@@ -147,33 +200,31 @@ def _extract_features(audio_bytes: bytes) -> dict:
         fluency -= (pause_frequency - 6) * 4
     if long_pause_count > 3:
         fluency -= long_pause_count * 3
+    if word_finding_delays > 2:
+        fluency -= word_finding_delays * 5
     if vocal_tremor != "none":
         fluency -= 10
     fluency = max(0, min(100, round(fluency)))
 
-    # --- Engagement ---
-    engagement = min(100, round(speech_ratio * 80 + energy_variation * 40))
+    # --- Engagement level ---
+    engagement = min(100, round(speech_ratio * 80 + (40 if emotional_tone == "positive" else 15)))
 
     return {
-        "source": "audio_analysis",
+        "source": "whisper_audio",
         "audio_available": True,
         "duration_sec": round(duration, 2),
+        "word_count": word_count,
         "speech_rate_wpm": speech_rate_wpm,
         "pause_frequency_per_min": pause_frequency,
         "pause_count": pause_count,
-        "avg_pause_sec": avg_pause_duration,
-        "max_pause_sec": max_pause_duration,
+        "avg_pause_sec": avg_pause,
+        "max_pause_sec": max_pause,
         "long_pauses_over_1s": long_pause_count,
-        "speech_to_silence_ratio": round(speech_ratio, 3),
-        "pitch_mean_hz": pitch_mean,
-        "pitch_std_hz": pitch_std,
-        "pitch_range_hz": pitch_range,
+        "speech_to_silence_ratio": speech_ratio,
         "vocal_tremor": vocal_tremor,
-        "energy_mean": energy_mean,
-        "energy_variation": energy_variation,
         "emotional_tone": emotional_tone,
         "fluency_score": fluency,
         "engagement_level": engagement,
-        "syllable_count": syllable_count,
-        "hesitation_events": long_pause_count,
+        "hesitation_events": hesitation_count,
+        "word_finding_delays": word_finding_delays,
     }

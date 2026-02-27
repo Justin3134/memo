@@ -42,13 +42,21 @@ export default function Dashboard() {
   const chartData = useMemo(() =>
     [...calls].sort((a, b) => a.startedAt - b.startedAt).map(c => ({
       date: new Date(c.startedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      cognitive: Math.round(c.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70),
-      motor: Math.round(c.motorScore ?? patient?.baseline?.motorScore ?? 70),
-      emotional: Math.round(c.emotionalScore ?? patient?.baseline?.emotionalScore ?? 70),
+      cognitive: Math.round(c.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 0),
+      motor: Math.round(c.motorScore ?? patient?.baseline?.motorScore ?? 0),
+      emotional: Math.round(c.emotionalScore ?? patient?.baseline?.emotionalScore ?? 0),
     })), [calls, patient?.baseline]);
 
   const latestCall = calls[0] ?? null;
-  const latestScore = latestCall?.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? 70;
+
+  const latestScore = useMemo(() => {
+    const cog = latestCall?.cognitiveScore ?? patient?.baseline?.cognitiveScore ?? null;
+    const mot = latestCall?.motorScore ?? patient?.baseline?.motorScore ?? null;
+    const emo = latestCall?.emotionalScore ?? patient?.baseline?.emotionalScore ?? null;
+    const available = [cog, mot, emo].filter((v): v is number => v !== null);
+    if (available.length === 0) return null;
+    return available.reduce((a, b) => a + b, 0) / available.length;
+  }, [latestCall, patient?.baseline]);
 
   const metricColor: Record<string, string> = {
     cognitive: "hsl(240,10%,4%)",
@@ -97,9 +105,15 @@ export default function Dashboard() {
                   : "No calls yet"}
               </p>
             </div>
-            <span className={`text-[12px] px-2.5 py-1 rounded-full border ${scoreBg(latestScore)}`}>
-              {scoreLabel(latestScore)}
-            </span>
+            {latestScore !== null ? (
+              <span className={`text-[12px] px-2.5 py-1 rounded-full border ${scoreBg(latestScore)}`}>
+                {scoreLabel(latestScore)}
+              </span>
+            ) : (
+              <span className="text-[12px] px-2.5 py-1 rounded-full border bg-muted/30 text-muted-foreground border-border">
+                Awaiting data
+              </span>
+            )}
           </div>
 
           {/* Metrics row */}
@@ -115,9 +129,15 @@ export default function Dashboard() {
             ))}
             <div className="ml-auto">
               <p className="text-[11px] text-muted-foreground mb-0.5">Overall</p>
-              <p className={`text-[26px] font-semibold tabular leading-none ${scoreColor(latestScore)}`}>
-                {Math.round(latestScore)}<span className="text-[13px] text-muted-foreground font-normal">/100</span>
-              </p>
+              {latestScore !== null ? (
+                <p className={`text-[26px] font-semibold tabular leading-none ${scoreColor(latestScore)}`}>
+                  {Math.round(latestScore)}<span className="text-[13px] text-muted-foreground font-normal">/100</span>
+                </p>
+              ) : (
+                <p className="text-[26px] font-semibold tabular leading-none text-muted-foreground/40">
+                  —<span className="text-[13px] text-muted-foreground font-normal">/100</span>
+                </p>
+              )}
             </div>
           </div>
 
@@ -167,8 +187,9 @@ export default function Dashboard() {
                       className="w-full px-8 py-2.5 flex items-center gap-3 hover:bg-[#F5F5F5] transition-colors text-left"
                     >
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        (call.cognitiveScore ?? 70) >= 75 ? "bg-memo-green" :
-                        (call.cognitiveScore ?? 70) >= 60 ? "bg-memo-amber" : "bg-memo-red"
+                        call.cognitiveScore == null ? "bg-foreground/20" :
+                        call.cognitiveScore >= 75 ? "bg-memo-green" :
+                        call.cognitiveScore >= 60 ? "bg-memo-amber" : "bg-memo-red"
                       }`} />
                       <span className="text-[13px] text-foreground/70 flex-1">
                         {new Date(call.startedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
@@ -176,8 +197,10 @@ export default function Dashboard() {
                       {call.duration && (
                         <span className="text-[11px] text-muted-foreground">{call.duration}s</span>
                       )}
-                      <span className={`text-[13px] tabular font-medium w-8 text-right ${scoreColor(call.cognitiveScore ?? 70)}`}>
-                        {Math.round(call.cognitiveScore ?? 70)}
+                      <span className={`text-[13px] tabular font-medium w-8 text-right ${
+                        call.cognitiveScore != null ? scoreColor(call.cognitiveScore) : "text-muted-foreground/40"
+                      }`}>
+                        {call.cognitiveScore != null ? Math.round(call.cognitiveScore) : "—"}
                       </span>
                       {expandedCallId === call._id
                         ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />

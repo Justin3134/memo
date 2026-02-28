@@ -116,22 +116,39 @@ PROVIDER_OUTPUT_SCHEMA = {
 
 
 async def find_providers_via_yutori(signal_type: str, location: str = "San Francisco Bay Area") -> list[dict]:
-    """Use Yutori Research API to find care providers, with Tavily fallback."""
+    """Find care providers using Tavily (fast) + Yutori (deep). Returns merged results."""
     signal = signal_type.replace("_", " ") if signal_type else "cognitive decline"
 
-    # Try Yutori first
-    yutori_results = await _yutori_provider_search(signal, location)
-    if yutori_results:
+    # Run Tavily immediately (fast, reliable) while Yutori searches in parallel
+    tavily_task = asyncio.to_thread(_tavily_provider_search, signal, location)
+    yutori_task = _yutori_provider_search(signal, location)
+
+    tavily_results: list[dict] = []
+    yutori_results: list[dict] = []
+
+    try:
+        tavily_results = await asyncio.wait_for(tavily_task, timeout=15)
+        for p in tavily_results:
+            p["found_by"] = "tavily"
+    except Exception as e:
+        logger.warning(f"Tavily provider search: {e}")
+
+    try:
+        yutori_results = await asyncio.wait_for(yutori_task, timeout=60)
         for p in yutori_results:
             p["found_by"] = "yutori"
-        return yutori_results
+    except Exception as e:
+        logger.warning(f"Yutori provider search: {e}")
 
-    # Fallback to Tavily for provider search
-    logger.info("Yutori returned no providers, falling back to Tavily")
-    tavily_results = _tavily_provider_search(signal, location)
-    for p in tavily_results:
-        p["found_by"] = "tavily"
-    return tavily_results
+    # Prefer Yutori results (deeper), supplement with Tavily
+    seen_names: set[str] = set()
+    merged: list[dict] = []
+    for p in yutori_results + tavily_results:
+        name_key = p.get("name", "").lower().strip()
+        if name_key and name_key not in seen_names:
+            seen_names.add(name_key)
+            merged.append(p)
+    return merged[:8]
 
 
 async def _yutori_provider_search(signal: str, location: str) -> list[dict]:
@@ -216,33 +233,39 @@ def _tavily_provider_search(signal: str, location: str) -> list[dict]:
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=tavily_key)
-        query = f"{signal} specialist geriatric neurologist memory care clinic near {location} appointment booking"
-        result = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=6,
-            include_domains=[
-                "healthgrades.com", "zocdoc.com", "webmd.com", "vitals.com",
-                "npiprofile.com", "mayoclinic.org", "ucsfhealth.org", "stanfordhealthcare.org",
-            ],
-        )
+        queries = [
+            f"best {signal} doctor specialist near {location} reviews appointment",
+            f"geriatric neurologist memory care clinic {location} accepting patients",
+        ]
         providers = []
-        for r in result.get("results", [])[:6]:
-            title = r.get("title", "")
-            url = r.get("url", "")
-            content = r.get("content", "")
-            providers.append({
-                "name": title.split("|")[0].split("-")[0].strip()[:80],
-                "specialty": signal.title(),
-                "address": location,
-                "phone": "",
-                "website": url,
-                "availability": "Check website for scheduling",
-                "rating": "",
-                "why_relevant": content[:200] if content else f"Specialist in {signal}",
-            })
+        seen_urls: set[str] = set()
+        for q in queries:
+            try:
+                result = client.search(query=q, search_depth="advanced", max_results=5)
+                for r in result.get("results", []):
+                    url = r.get("url", "")
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    title = r.get("title", "")
+                    content = r.get("content", "")
+                    name = title.split("|")[0].split(" - ")[0].strip()[:80]
+                    if not name or len(name) < 3:
+                        continue
+                    providers.append({
+                        "name": name,
+                        "specialty": signal.replace("_", " ").title(),
+                        "address": location,
+                        "phone": "",
+                        "website": url,
+                        "availability": "Check website for scheduling",
+                        "rating": "",
+                        "why_relevant": content[:250] if content else f"Specialist in {signal}",
+                    })
+            except Exception as e:
+                logger.warning(f"Tavily provider query failed: {e}")
         logger.info(f"Tavily provider fallback: {len(providers)} results")
-        return providers
+        return providers[:8]
     except Exception as e:
         logger.error(f"Tavily provider fallback failed: {e}")
         return []
@@ -353,6 +376,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
 
     # Step 6: Neo4j — write full analysis to knowledge graph
     topic_phrases = analysis.get("topicPhrases") or analysis.get("healthMentions") or []
+    conversation_signals = analysis.get("conversationSignals") or []
     try:
         neo4j.write_call_analysis(
             patient_id=patient_id, call_id=call_id, duration=duration,
@@ -370,6 +394,7 @@ async def run_pipeline(patient_id: str, call_id: str, transcript: str, duration:
             anomaly_severity=analysis.get("anomalySeverity"),
             anomaly_description=analysis.get("anomalyDescription"),
             topic_phrases=topic_phrases,
+            conversation_signals=conversation_signals,
         )
         neo4j.build_temporal_chain(patient_id)
         neo4j.build_cross_patient_similarity(patient_id)

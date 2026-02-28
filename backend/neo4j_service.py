@@ -53,6 +53,10 @@ def ensure_constraints():
             s.run("CREATE CONSTRAINT patient_id IF NOT EXISTS FOR (p:Patient) REQUIRE p.id IS UNIQUE")
             s.run("CREATE CONSTRAINT call_id IF NOT EXISTS FOR (c:Call) REQUIRE c.id IS UNIQUE")
             s.run("CREATE CONSTRAINT topic_name IF NOT EXISTS FOR (t:Topic) REQUIRE t.name IS UNIQUE")
+            try:
+                s.run("CREATE CONSTRAINT evidence_id IF NOT EXISTS FOR (e:Evidence) REQUIRE e.id IS UNIQUE")
+            except Exception:
+                pass
             s.run("CREATE CONSTRAINT marker_name IF NOT EXISTS FOR (m:AcousticMarker) REQUIRE m.name IS UNIQUE")
             s.run("CREATE CONSTRAINT pattern_name IF NOT EXISTS FOR (cp:ClinicalPattern) REQUIRE cp.name IS UNIQUE")
             s.run("CREATE CONSTRAINT condition_name IF NOT EXISTS FOR (cond:Condition) REQUIRE cond.name IS UNIQUE")
@@ -191,6 +195,7 @@ def write_call_analysis(
     entities: dict, anomaly_detected: bool, anomaly_type: Optional[str],
     anomaly_severity: Optional[str], anomaly_description: Optional[str],
     transcript: str = "", topic_phrases: list[str] | None = None,
+    conversation_signals: list[dict] | None = None,
 ):
     db = _db()
     with get_driver().session(database=db) as s:
@@ -279,13 +284,49 @@ def write_call_analysis(
                 MERGE (n)-[:MATCHES]->(m)
             """, cid=call_id)
 
-        # Topics: prefer OpenAI-generated phrases, fall back to extraction
-        topics = topic_phrases if topic_phrases else (_extract_topics(summary) if summary else [])
-        for topic in topics[:8]:
+        # Evidence nodes from conversationSignals (replaces old single-word Topic nodes)
+        _SIGNAL_TO_CONDITION = {
+            "memory_gaps": "MCI", "memory_lapse": "EarlyAlzheimers",
+            "word_finding_difficulty": "MCI", "word_finding_decline": "MCI",
+            "cognitive_decline": "MCI", "confusion_indicator": "MCI",
+            "emotional_distress": "Depression", "emotional_flatness": "Depression",
+            "physical_concern": "Depression", "fatigue": "Depression",
+            "sleep_disruption": "MCI", "repetition": "MCI",
+        }
+        signals = conversation_signals or []
+        for idx, sig in enumerate(signals[:8]):
+            quote = sig.get("quote", "").strip()
+            if not quote or len(quote) < 5:
+                continue
+            eid = f"{call_id}__ev{idx}"
+            signal_label = sig.get("signal", "observation")
+            explanation = sig.get("explanation", "")
             s.run("""
-                MERGE (t:Topic {name: $tn})
-                WITH t MATCH (c:Call {id: $cid}) MERGE (c)-[:MENTIONED]->(t)
-            """, tn=topic, cid=call_id)
+                MERGE (e:Evidence {id: $eid})
+                SET e.quote=$quote, e.signal=$signal, e.explanation=$expl,
+                    e.number=$num, e.callId=$cid
+                WITH e MATCH (c:Call {id: $cid}) MERGE (c)-[:EVIDENCED_BY]->(e)
+            """, eid=eid, quote=quote[:300], signal=signal_label,
+                 expl=explanation[:300], num=idx + 1, cid=call_id)
+
+            cond_name = _SIGNAL_TO_CONDITION.get(signal_label)
+            if cond_name:
+                s.run("""
+                    MATCH (e:Evidence {id: $eid}), (cond:Condition {name: $cn})
+                    MERGE (e)-[:RELATES_TO]->(cond)
+                """, eid=eid, cn=cond_name)
+
+        # Fallback: if no conversationSignals, create Evidence from topic phrases
+        if not signals and (topic_phrases or summary):
+            topics = topic_phrases if topic_phrases else (_extract_topics(summary) if summary else [])
+            for idx, topic in enumerate(topics[:6]):
+                eid = f"{call_id}__ev{idx}"
+                s.run("""
+                    MERGE (e:Evidence {id: $eid})
+                    SET e.quote=$quote, e.signal='observation', e.explanation='',
+                        e.number=$num, e.callId=$cid
+                    WITH e MATCH (c:Call {id: $cid}) MERGE (c)-[:EVIDENCED_BY]->(e)
+                """, eid=eid, quote=topic[:200], num=idx + 1, cid=call_id)
 
 
 def build_temporal_chain(patient_id: str):
@@ -430,21 +471,41 @@ def get_patient_graph(patient_id: str) -> dict:
                 if key not in links:
                     links[key] = {"source": src, "target": tgt, "type": rel_type}
 
-        # Core: patient → calls → topics + anomalies
+        # Core: patient → calls → evidence + anomalies
         result = s.run("""
             MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
             OPTIONAL MATCH (c)-[:TRIGGERED]->(an:Anomaly)
-            OPTIONAL MATCH (c)-[:MENTIONED]->(t:Topic)
-            RETURN p, c, an, t
+            OPTIONAL MATCH (c)-[:EVIDENCED_BY]->(ev:Evidence)
+            RETURN p, c, an, ev
             ORDER BY c.timestamp DESC
         """, id=patient_id)
         for rec in result:
             p = add(rec["p"], "Patient")
             c = add(rec["c"], "Call")
             an = add(rec["an"], "Anomaly")
-            t = add(rec["t"], "Topic")
+            ev = add(rec["ev"], "Evidence")
             link(p, c, "HAD_CALL")
             link(c, an, "TRIGGERED")
+            link(c, ev, "EVIDENCED_BY")
+
+        # Evidence → Condition links
+        ev_cond = s.run("""
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:EVIDENCED_BY]->(ev:Evidence)-[:RELATES_TO]->(cond:Condition)
+            RETURN ev, cond
+        """, id=patient_id)
+        for rec in ev_cond:
+            ev = add(rec["ev"], "Evidence")
+            cond = add(rec["cond"], "Condition")
+            link(ev, cond, "RELATES_TO")
+
+        # Legacy Topic nodes (from old data)
+        legacy_topics = s.run("""
+            MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:MENTIONED]->(t:Topic)
+            RETURN c, t
+        """, id=patient_id)
+        for rec in legacy_topics:
+            c = add(rec["c"], "Call")
+            t = add(rec["t"], "Topic")
             link(c, t, "MENTIONED")
 
         # Individual metric nodes (new separate types)

@@ -74,18 +74,26 @@ export default function Care() {
       : `${base} care support services resources`;
   };
 
+  const abortRef = useRef<AbortController | null>(null);
+
   const runSearch = async (q?: string, m?: SearchMode) => {
     const finalQ = q ?? query;
     const finalM = m ?? mode;
     if (!finalQ.trim()) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setSearching(true); setSearchError(null); setQuery(finalQ);
     try {
       if (finalM === "providers") {
+        const timeout = setTimeout(() => controller.abort(), 90_000);
         const res = await fetch(`${BACKEND}/care/find-providers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ signal_type: signalParam || finalQ, location: providerLocation }),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error((await res.text()) || `${res.status}`);
         const data = await res.json();
         setProviders(data.providers ?? []);
@@ -96,6 +104,7 @@ export default function Care() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: searchQ.trim(), signal_type: signalParam || undefined }),
+          signal: controller.signal,
         });
         if (!res.ok) throw new Error((await res.text()) || `${res.status}`);
         const data = await res.json();
@@ -104,6 +113,7 @@ export default function Care() {
       }
       setSearched(true);
     } catch (e: any) {
+      if (e?.name === "AbortError") return;
       const msg = e?.message ?? "";
       setSearchError(
         msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("ECONNREFUSED")
@@ -223,25 +233,25 @@ export default function Care() {
               className="px-4 py-2.5 text-[13px] font-medium bg-foreground text-background rounded-lg hover:bg-foreground/90 disabled:opacity-40 transition-colors flex items-center gap-1.5 shrink-0"
             >
               {searching && <RefreshCw className="w-3 h-3 animate-spin" />}
-              {searching ? (mode === "providers" ? "Yutori searching…" : "Searching…") : "Search"}
+              {searching ? "Searching…" : "Search"}
             </button>
           </div>
 
-          {/* Yutori agent banner when searching providers */}
+          {/* Provider search banner */}
           {mode === "providers" && searching && (
-            <div className="mx-8 mb-4 p-4 bg-orange-50 border border-orange-200/50 rounded-lg">
+            <div className="mx-8 mb-4 p-4 bg-gradient-to-r from-orange-50 to-sky-50 border border-orange-200/30 rounded-lg">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-orange-600" strokeWidth={2} />
+                  <Bot className="w-4 h-4 text-orange-600 animate-pulse" strokeWidth={2} />
                 </div>
                 <div>
-                  <p className="text-[12px] font-medium text-orange-700">Yutori is finding providers…</p>
-                  <p className="text-[11px] text-orange-600/70">Searching websites for nearby specialists, checking availability, and comparing options</p>
+                  <p className="text-[12px] font-medium text-foreground">Finding care providers…</p>
+                  <p className="text-[11px] text-muted-foreground">Searching with Tavily + Yutori for specialists near {providerLocation}</p>
                 </div>
               </div>
               <div className="mt-3 flex gap-1.5">
-                {["Searching directories", "Checking websites", "Extracting availability"].map((step, i) => (
-                  <span key={i} className="text-[9px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 animate-pulse" style={{ animationDelay: `${i * 0.3}s` }}>
+                {["Tavily search", "Yutori web agent", "Comparing results"].map((step, i) => (
+                  <span key={i} className="text-[9px] px-2 py-0.5 rounded-full bg-white border border-border text-muted-foreground animate-pulse" style={{ animationDelay: `${i * 0.4}s` }}>
                     {step}
                   </span>
                 ))}
@@ -276,10 +286,17 @@ export default function Care() {
           {!searching && mode === "providers" && providers.length > 0 && (
             <div className="px-8 pb-8">
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-[11px] font-medium text-orange-600">{providers.length} providers found</span>
-                <span className="text-[10px] text-muted-foreground">
-                  via {providers[0]?.found_by === "tavily" ? "Tavily" : "Yutori"}
-                </span>
+                <span className="text-[11px] font-medium text-foreground">{providers.length} providers found</span>
+                {(() => {
+                  const yCount = providers.filter(p => p.found_by === "yutori").length;
+                  const tCount = providers.filter(p => p.found_by === "tavily").length;
+                  return (
+                    <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      {yCount > 0 && <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-600">{yCount} via Yutori</span>}
+                      {tCount > 0 && <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-600">{tCount} via Tavily</span>}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="space-y-3">
                 {providers.map((p, i) => (

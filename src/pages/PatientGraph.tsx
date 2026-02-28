@@ -29,7 +29,8 @@ interface GraphData { nodes: GraphNode[]; links: GraphLink[] }
 const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> = {
   Patient:          { fill: "#18181b", stroke: "#18181b", r: 24 },
   Call:             { fill: "#3b82f6", stroke: "#2563eb", r: 14 },
-  Topic:            { fill: "#f97316", stroke: "#ea580c", r: 10 },
+  Evidence:         { fill: "#f97316", stroke: "#ea580c", r: 11 },
+  Topic:            { fill: "#fb923c", stroke: "#f97316", r: 8 },
   SpeechRate:       { fill: "#7c3aed", stroke: "#6d28d9", r: 9 },
   PauseFrequency:   { fill: "#8b5cf6", stroke: "#7c3aed", r: 9 },
   HesitationCount:  { fill: "#a78bfa", stroke: "#8b5cf6", r: 9 },
@@ -43,12 +44,14 @@ const NODE_STYLES: Record<string, { fill: string; stroke: string; r: number }> =
   ClinicalPattern:  { fill: "#f59e0b", stroke: "#d97706", r: 10 },
   Condition:        { fill: "#dc2626", stroke: "#b91c1c", r: 12 },
   Study:            { fill: "#0ea5e9", stroke: "#0284c7", r: 9 },
-  Provider:         { fill: "#f97316", stroke: "#ea580c", r: 11 },
+  Provider:         { fill: "#22c55e", stroke: "#16a34a", r: 11 },
 };
 
 const LINK_COLORS: Record<string, string> = {
   HAD_CALL:        "#94a3b8",
   FOLLOWED_BY:     "#3b82f6",
+  EVIDENCED_BY:    "#fdba74",
+  RELATES_TO:      "#f87171",
   HAS_METRIC:      "#c4b5fd",
   HAS_ACOUSTIC:    "#c4b5fd",
   HAS_SCORE:       "#6ee7b7",
@@ -58,25 +61,26 @@ const LINK_COLORS: Record<string, string> = {
   INDICATES:       "#fbbf24",
   ASSOCIATED_WITH: "#f87171",
   SUPPORTED_BY:    "#7dd3fc",
-  TREATED_AT:      "#fb923c",
+  TREATED_AT:      "#4ade80",
 };
 
 const ns = (label: string) => NODE_STYLES[label] ?? { fill: "#94a3b8", stroke: "#64748b", r: 8 };
 
-type LayerKey = "core" | "voice" | "scores" | "clinical" | "evidence" | "care";
+type LayerKey = "core" | "voice" | "scores" | "clinical" | "research" | "care";
 const LAYERS: Record<LayerKey, { label: string; types: string[]; description: string }> = {
-  core:     { label: "Conversations", types: ["Patient", "Call", "Topic", "Anomaly"], description: "Calls, topics & anomalies" },
-  voice:    { label: "Voice Metrics", types: ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"], description: "Modulate acoustic analysis" },
-  scores:   { label: "Health Scores", types: ["CognitiveScore", "EmotionalScore", "MotorScore"], description: "Cognitive, emotional & motor" },
-  clinical: { label: "Clinical", types: ["AcousticMarker", "ClinicalPattern", "Condition"], description: "Patterns & conditions" },
-  evidence: { label: "Research", types: ["Study"], description: "Tavily clinical studies" },
-  care:     { label: "Providers", types: ["Provider"], description: "Yutori-found clinics" },
+  core:     { label: "Calls & Evidence", types: ["Patient", "Call", "Evidence", "Topic", "Anomaly"], description: "Calls, patient quotes & anomalies" },
+  voice:    { label: "Voice Metrics", types: ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"], description: "Modulate Velma-2 acoustic analysis" },
+  scores:   { label: "Health Scores", types: ["CognitiveScore", "EmotionalScore", "MotorScore"], description: "Cognitive, emotional & motor scores" },
+  clinical: { label: "Clinical", types: ["AcousticMarker", "ClinicalPattern", "Condition"], description: "Markers, patterns & conditions" },
+  research: { label: "Research", types: ["Study"], description: "Tavily clinical studies" },
+  care:     { label: "Care Providers", types: ["Provider"], description: "Clinics & specialists" },
 };
 
 const IDEAL_LEN: Record<string, number> = {
-  HAD_CALL: 160, FOLLOWED_BY: 120, HAS_METRIC: 100, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
+  HAD_CALL: 160, FOLLOWED_BY: 120, EVIDENCED_BY: 120, RELATES_TO: 140,
+  HAS_METRIC: 100, HAS_ACOUSTIC: 100, HAS_SCORE: 100,
   TRIGGERED: 110, MENTIONED: 140, MATCHES: 120, INDICATES: 100,
-  ASSOCIATED_WITH: 100, SUPPORTED_BY: 100, TREATED_AT: 120,
+  ASSOCIATED_WITH: 100, SUPPORTED_BY: 120, TREATED_AT: 130,
 };
 
 function useForceGraph(
@@ -103,11 +107,13 @@ function useForceGraph(
     const nodes: GraphNode[] = data.nodes.map((n, i) => {
       const angle = (i / data.nodes.length) * Math.PI * 2;
       const layerR = n.label === "Patient" ? 0 :
-        ["Call", "Topic", "Anomaly"].includes(n.label) ? 200 :
+        ["Call", "Anomaly"].includes(n.label) ? 180 :
+        ["Evidence", "Topic"].includes(n.label) ? 280 :
         ["SpeechRate", "PauseFrequency", "HesitationCount", "WordFindingScore", "AcousticProfile"].includes(n.label) ? 350 :
         ["CognitiveScore", "EmotionalScore", "MotorScore"].includes(n.label) ? 350 :
-        ["AcousticMarker", "ClinicalPattern"].includes(n.label) ? 480 :
-        n.label === "Provider" ? 600 : 580;
+        ["AcousticMarker", "ClinicalPattern", "Condition"].includes(n.label) ? 480 :
+        ["Study"].includes(n.label) ? 560 :
+        n.label === "Provider" ? 620 : 560;
       return {
         ...n,
         x: cx + Math.cos(angle) * layerR + (Math.random() - 0.5) * 50,
@@ -409,6 +415,12 @@ export default function PatientGraph() {
         const ts = Number(n.props.timestamp ?? 0);
         return ts > 0 ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Call";
       }
+      case "Evidence": {
+        const quote = String(n.props.quote ?? "");
+        const num = n.props.number ?? "";
+        const short = quote.length > 32 ? quote.slice(0, 30) + "…" : quote;
+        return num ? `#${num} "${short}"` : `"${short}"`;
+      }
       case "Topic": return String(n.props.name ?? "").slice(0, 28);
       case "SpeechRate": return `${Number(n.props.value ?? 0).toFixed(0)} wpm`;
       case "PauseFrequency": return `${Number(n.props.value ?? 0).toFixed(1)}/min`;
@@ -419,7 +431,7 @@ export default function PatientGraph() {
       case "MotorScore": return `Motor: ${Number(n.props.value ?? 0).toFixed(0)}`;
       case "AcousticMarker": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 18);
       case "ClinicalPattern": return String(n.props.name ?? "").replace(/([A-Z])/g, " $1").trim().slice(0, 18);
-      case "Condition": return String(n.props.name ?? "").slice(0, 10);
+      case "Condition": return String(n.props.name ?? "").slice(0, 14);
       case "Study": return `${String(n.props.source ?? "Study").slice(0, 16)}`;
       case "Anomaly": return String(n.props.type ?? "anomaly").replace(/_/g, " ").slice(0, 14);
       case "AcousticProfile": return `${n.props.speechRate ?? "?"}wpm`;
@@ -577,16 +589,24 @@ export default function PatientGraph() {
                 </marker>
                 <marker id="arrow-TREATED_AT" viewBox="0 0 10 10" refX="10" refY="5"
                   markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c" opacity={0.6} />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#4ade80" opacity={0.6} />
+                </marker>
+                <marker id="arrow-EVIDENCED_BY" viewBox="0 0 10 10" refX="10" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#fdba74" opacity={0.6} />
+                </marker>
+                <marker id="arrow-RELATES_TO" viewBox="0 0 10 10" refX="10" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171" opacity={0.6} />
                 </marker>
               </defs>
               <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
                 {/* Links */}
                 {resolvedLinks.map((l, i) => {
                   const isChain = l.type === "FOLLOWED_BY";
-                  const isEvidence = ["INDICATES", "ASSOCIATED_WITH", "SUPPORTED_BY", "TREATED_AT"].includes(l.type);
+                  const isEvidence = ["EVIDENCED_BY", "RELATES_TO", "INDICATES", "ASSOCIATED_WITH", "SUPPORTED_BY", "TREATED_AT"].includes(l.type);
                   const dim = hasFocus && !connectedTo.has(l.sid) && !connectedTo.has(l.tid);
-                  const hasArrow = ["FOLLOWED_BY", "INDICATES", "ASSOCIATED_WITH", "TREATED_AT"].includes(l.type);
+                  const hasArrow = ["FOLLOWED_BY", "EVIDENCED_BY", "RELATES_TO", "INDICATES", "ASSOCIATED_WITH", "TREATED_AT"].includes(l.type);
                   return (
                     <line key={i}
                       x1={l.sx} y1={l.sy} x2={l.tx} y2={l.ty}
@@ -634,6 +654,10 @@ export default function PatientGraph() {
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
                           fontSize={8} fill="#fff" fontWeight={700}>{callTimestamps.get(n.id) ?? ""}</text>
                       )}
+                      {n.label === "Evidence" && (
+                        <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
+                          fontSize={7} fill="#fff" fontWeight={700}>E{n.props.number ?? ""}</text>
+                      )}
                       {(n.label === "CognitiveScore" || n.label === "EmotionalScore" || n.label === "MotorScore") && (
                         <text x={n.x} y={n.y! + 1} textAnchor="middle" dominantBaseline="middle"
                           fontSize={6} fill="#fff" fontWeight={600}>{Number(n.props.value ?? n.props.overallScore ?? 0).toFixed(0)}</text>
@@ -650,25 +674,29 @@ export default function PatientGraph() {
               </g>
             </svg>
 
-            {/* Legend overlay */}
-            <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2">
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {Object.entries(NODE_STYLES)
-                  .filter(([label]) => visibleTypes.has(label) && nodeCounts[label])
-                  .map(([label, s]) => {
-                    const displayName: Record<string, string> = {
-                      SpeechRate: "Speech Rate", PauseFrequency: "Pause Freq",
-                      HesitationCount: "Hesitations", WordFindingScore: "Word Finding",
-                      CognitiveScore: "Cognitive", EmotionalScore: "Emotional", MotorScore: "Motor",
-                      AcousticProfile: "Acoustic (legacy)", AcousticMarker: "Marker",
-                      ClinicalPattern: "Pattern", Provider: "Provider",
+            {/* Legend overlay — grouped by active layer */}
+            <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2 max-w-md">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
+                  .filter(([k]) => activeLayers.has(k))
+                  .map(([, layer]) => {
+                    const items = layer.types
+                      .filter(t => nodeCounts[t])
+                      .map(t => ({ t, count: nodeCounts[t] }));
+                    if (items.length === 0) return null;
+                    const dn: Record<string, string> = {
+                      Evidence: "Evidence", Topic: "Topic (legacy)",
+                      SpeechRate: "Rate", PauseFrequency: "Pause", HesitationCount: "Hesit.", WordFindingScore: "WF",
+                      CognitiveScore: "Cog", EmotionalScore: "Emo", MotorScore: "Motor",
+                      AcousticProfile: "Legacy", AcousticMarker: "Marker", ClinicalPattern: "Pattern",
                     };
-                    return (
-                      <div key={label} className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.fill }} />
-                        <span className="text-[10px] text-muted-foreground">{displayName[label] ?? label} <span className="text-foreground/50">{nodeCounts[label]}</span></span>
-                      </div>
-                    );
+                    return items.map(({ t, count }) => (
+                      <span key={t} className="flex items-center gap-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
+                        <span className="text-[9px] text-muted-foreground">{dn[t] ?? t}</span>
+                        <span className="text-[8px] text-foreground/40">{count}</span>
+                      </span>
+                    ));
                   })}
               </div>
             </div>
@@ -687,6 +715,18 @@ export default function PatientGraph() {
                   <span className="text-[13px] font-semibold text-foreground">{selected.label}</span>
                 </div>
                 <div className="space-y-3">
+                  {selected.label === "Evidence" && (
+                    <div className="p-2 bg-orange-50/70 rounded-md border border-orange-200/50 mb-3">
+                      <p className="text-[10px] font-medium text-orange-700 mb-1">Patient Evidence #{String(selected.props.number ?? "")}</p>
+                      <p className="text-[11px] text-foreground italic leading-relaxed">"{String(selected.props.quote ?? "")}"</p>
+                      {selected.props.signal && (
+                        <p className="text-[10px] text-orange-600 mt-1.5 font-medium">{String(selected.props.signal).replace(/_/g, " ").toUpperCase()}</p>
+                      )}
+                      {selected.props.explanation && (
+                        <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">{String(selected.props.explanation)}</p>
+                      )}
+                    </div>
+                  )}
                   {selected.label === "Study" && (
                     <div className="p-2 bg-sky-50/70 rounded-md border border-sky-200/50 mb-2">
                       <p className="text-[10px] font-medium text-sky-700">
@@ -705,15 +745,15 @@ export default function PatientGraph() {
                     </div>
                   )}
                   {selected.label === "Provider" && (
-                    <div className="p-2 bg-orange-50/70 rounded-md border border-orange-200/50 mb-2">
-                      <p className="text-[10px] font-medium text-orange-700">
+                    <div className="p-2 bg-green-50/70 rounded-md border border-green-200/50 mb-2">
+                      <p className="text-[10px] font-medium text-green-700">
                         Found by {selected.props.foundBy === "tavily" ? "Tavily" : "Yutori"} provider search
                       </p>
                     </div>
                   )}
                   {Object.entries(selected.props).map(([k, v]) => {
                     if (v === null || v === undefined || v === "") return null;
-                    const hiddenKeys = ["id", "patientId", "callId"];
+                    const hiddenKeys = ["id", "patientId", "callId", "number"];
                     if (hiddenKeys.includes(k)) return null;
                     let display: string;
                     if (typeof v === "number" && (k.toLowerCase().includes("timestamp") || k.toLowerCase().includes("enrolled") || k.toLowerCase().includes("detected"))) {
@@ -778,6 +818,7 @@ export default function PatientGraph() {
                           <div className="flex flex-wrap gap-1 mt-1">
                             {layer.types.filter(t => t !== "AcousticProfile").map(t => {
                               const dn: Record<string, string> = {
+                                Evidence: "Evidence", Topic: "Topic (old)",
                                 SpeechRate: "Speech Rate", PauseFrequency: "Pause Freq",
                                 HesitationCount: "Hesitations", WordFindingScore: "Word Finding",
                                 CognitiveScore: "Cognitive", EmotionalScore: "Emotional", MotorScore: "Motor",

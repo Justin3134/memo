@@ -719,41 +719,6 @@ export default function PatientGraph() {
               </g>
             </svg>
 
-            {/* Legend overlay — grouped by layer */}
-            <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2.5 max-w-lg shadow-sm">
-              {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
-                .filter(([k]) => activeLayers.has(k))
-                .map(([key, layer], gi) => {
-                  const items = layer.types
-                    .filter(t => nodeCounts[t])
-                    .map(t => ({ t, count: nodeCounts[t] }));
-                  if (items.length === 0) return null;
-                  const dn: Record<string, string> = {
-                    Patient: "Patient", Call: "Call", Evidence: "Evidence", Topic: "Topic (old)",
-                    Anomaly: "Anomaly",
-                    SpeechRate: "Speech Rate", PauseFrequency: "Pause Frequency",
-                    HesitationCount: "Hesitation Count", WordFindingScore: "Word Finding",
-                    AcousticProfile: "Acoustic (old)",
-                    CognitiveScore: "Cognitive Score", EmotionalScore: "Emotional Score",
-                    MotorScore: "Motor Score",
-                    AcousticMarker: "Acoustic Marker", ClinicalPattern: "Clinical Pattern",
-                    Condition: "Condition",
-                    Study: "Research Study", Provider: "Care Provider",
-                  };
-                  return (
-                    <div key={key} className={`flex items-center gap-x-2.5 flex-wrap ${gi > 0 ? "mt-1 pt-1 border-t border-border/30" : ""}`}>
-                      <span className="text-[8px] uppercase tracking-wider text-muted-foreground/50 w-10 shrink-0">{layer.label.split(" ")[0]}</span>
-                      {items.map(({ t, count }) => (
-                        <span key={t} className="flex items-center gap-1 py-0.5">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
-                          <span className="text-[10px] text-foreground/70">{dn[t] ?? t}</span>
-                          <span className="text-[9px] text-muted-foreground/50">{count}</span>
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })}
-            </div>
 
             <div className="absolute top-3 right-3 text-[10px] text-muted-foreground/60">
               scroll to zoom · drag to pan · drag nodes to reposition

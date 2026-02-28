@@ -321,6 +321,149 @@ def patient_timeline(patient_id: str):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.get("/patients/{patient_id}/insights")
+def patient_insights(patient_id: str):
+    ok, msg = neo4j.verify_connection()
+    if not ok:
+        raise HTTPException(503, msg)
+    try:
+        return {"insights": neo4j.compute_trend_insights(patient_id)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.post("/patients/{patient_id}/report")
+async def generate_patient_report(patient_id: str):
+    """Generate an AI clinical summary report from the patient's full graph data."""
+    ok, msg = neo4j.verify_connection()
+    if not ok:
+        raise HTTPException(503, msg)
+
+    ctx = neo4j.gather_report_context(patient_id)
+    if ctx["callCount"] < 1:
+        raise HTTPException(400, "No calls to generate report from")
+
+    # Build evidence summary for the prompt
+    evidence_text = ""
+    for ev in ctx.get("evidence", [])[:15]:
+        evidence_text += f'- "{ev.get("quote", "")}" (signal: {ev.get("signal", "")}) — {ev.get("explanation", "")}\n'
+
+    anomaly_text = ""
+    for an in ctx.get("anomalies", []):
+        anomaly_text += f'- {an.get("type", "").replace("_", " ").title()} ({an.get("severity", "")}): {an.get("description", "")[:200]}\n'
+
+    score_text = ""
+    for sc in ctx.get("scores", []):
+        parts = []
+        if sc.get("cognitive") is not None: parts.append(f"Cog:{sc['cognitive']:.0f}")
+        if sc.get("emotional") is not None: parts.append(f"Emo:{sc['emotional']:.0f}")
+        if sc.get("speechRate") is not None: parts.append(f"Rate:{sc['speechRate']:.0f}wpm")
+        if sc.get("pauseFreq") is not None: parts.append(f"Pause:{sc['pauseFreq']:.1f}/min")
+        if parts:
+            score_text += f"  Call: {', '.join(parts)}\n"
+
+    conditions_text = ", ".join(c.get("name", "") for c in ctx.get("conditions", [])) or "None flagged"
+
+    studies_text = ""
+    for st in ctx.get("studies", [])[:5]:
+        studies_text += f'- {st.get("title", "")} ({st.get("source", "")}) [{st.get("foundBy", "tavily")}]\n'
+
+    summaries_text = ""
+    for cs in ctx.get("callSummaries", [])[-6:]:
+        summaries_text += f'- {cs.get("summary", "")[:150]}\n'
+
+    # Tavily: search for additional research to cite
+    tavily_sources: list[dict] = []
+    primary_condition = ctx.get("conditions", [{}])[0].get("name", "") if ctx.get("conditions") else ""
+    if primary_condition:
+        try:
+            tavily_results = tavily.search_clinical_research(primary_condition, max_results=3)
+            tavily_sources = tavily_results
+        except Exception:
+            pass
+
+    tavily_section = ""
+    for ts in tavily_sources:
+        tavily_section += f'- {ts.get("title", "")} ({ts.get("source", "")}): {ts.get("excerpt", "")[:150]}\n'
+
+    patient_name = ctx.get("patientName", "Patient")
+    prompt = f"""You are a clinical AI writing a concise longitudinal health assessment report.
+
+PATIENT: {patient_name}
+CALLS ANALYZED: {ctx['callCount']}
+CONDITIONS FLAGGED: {conditions_text}
+
+CALL SUMMARIES (most recent):
+{summaries_text}
+
+SCORE TRENDS ACROSS CALLS:
+{score_text}
+
+PATIENT EVIDENCE (verbatim quotes from conversations):
+{evidence_text}
+
+ANOMALIES DETECTED:
+{anomaly_text}
+
+EXISTING RESEARCH (from knowledge graph):
+{studies_text}
+
+ADDITIONAL TAVILY RESEARCH:
+{tavily_section}
+
+Write a clinical assessment report with these sections:
+1. **Executive Summary** (2-3 sentences: who, what's happening, risk level)
+2. **Longitudinal Trends** (how scores/metrics changed over {ctx['callCount']} calls — use specific numbers)
+3. **Key Evidence** (reference 2-3 specific patient quotes that are clinically significant)
+4. **Clinical Indicators** (what the voice metrics and anomaly patterns suggest — cite speech rate, pause frequency, etc.)
+5. **Supporting Research** (reference the studies found, explain how they back up the findings)
+6. **Recommended Actions** (3-4 specific next steps for the family/caregiver)
+
+Requirements:
+- Use specific numbers from the data (scores, rates, frequencies)
+- Reference actual patient quotes with quotation marks
+- Cite research sources by name
+- Be direct and evidence-based, not vague
+- Keep it under 600 words
+- Write in third person ("The patient..." not "You...")
+"""
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if not openai_key:
+        raise HTTPException(500, "OPENAI_API_KEY not configured")
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_key)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1200,
+        )
+        report_text = response.choices[0].message.content or ""
+    except Exception as e:
+        logger.error(f"Report generation failed: {e}")
+        raise HTTPException(500, f"Report generation failed: {e}")
+
+    all_sources = []
+    for st in ctx.get("studies", []):
+        all_sources.append({"title": st.get("title", ""), "url": st.get("url", ""),
+                            "source": st.get("source", ""), "foundBy": st.get("foundBy", "tavily")})
+    for ts in tavily_sources:
+        all_sources.append({"title": ts.get("title", ""), "url": ts.get("url", ""),
+                            "source": ts.get("source", ""), "foundBy": ts.get("found_by", "tavily")})
+
+    return {
+        "report": report_text,
+        "sources": all_sources,
+        "callCount": ctx["callCount"],
+        "evidenceCount": len(ctx.get("evidence", [])),
+        "anomalyCount": len(ctx.get("anomalies", [])),
+        "conditions": [c.get("name", "") for c in ctx.get("conditions", [])],
+        "generatedAt": int(time.time() * 1000),
+    }
+
+
 @app.post("/sync/history")
 def sync_history(req: SyncHistoryRequest):
     ok, msg = neo4j.verify_connection()

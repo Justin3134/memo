@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { MemoLayout } from "@/components/memo/MemoLayout";
 import { useMemoDashboardData } from "@/hooks/useMemoDashboardData";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Eye, EyeOff } from "lucide-react";
+import { RefreshCw, Eye, EyeOff, TrendingDown, TrendingUp, Minus, Brain, Activity, ChevronDown, ChevronRight, FileText, ExternalLink, X } from "lucide-react";
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:8000";
 
@@ -237,6 +237,17 @@ export default function PatientGraph() {
   const dragging = useRef<{ dx: number; dy: number } | null>(null);
 
   const [activeLayers, setActiveLayers] = useState<Set<LayerKey>>(new Set(["core"]));
+  const [insights, setInsights] = useState<Array<{
+    type: string; title: string; detail: string; direction: string;
+    delta: number; dataPoints: number; severity: string;
+  }>>([]);
+  const [insightsOpen, setInsightsOpen] = useState(true);
+  const [report, setReport] = useState<{
+    report: string; sources: Array<{ title: string; url: string; source: string; foundBy: string }>;
+    callCount: number; evidenceCount: number; anomalyCount: number; conditions: string[];
+  } | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const visibleTypes = new Set(
     (Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
       .filter(([k]) => activeLayers.has(k))
@@ -328,6 +339,7 @@ export default function PatientGraph() {
       if (!r.ok) throw new Error(d.detail ?? "Sync failed");
       setSyncStatus(`Synced ${d.synced} call${d.synced !== 1 ? "s" : ""}`);
       await fetchGraph();
+      await fetchInsights();
     } catch (e: any) {
       setSyncStatus(`Error: ${e.message}`);
     } finally {
@@ -335,7 +347,32 @@ export default function PatientGraph() {
     }
   };
 
-  useEffect(() => { fetchGraph(); }, [patient?._id]);
+  const fetchInsights = async () => {
+    if (!patient?._id) return;
+    try {
+      const r = await fetch(`${BACKEND}/patients/${patient._id}/insights`);
+      if (r.ok) {
+        const data = await r.json();
+        setInsights(data.insights ?? []);
+      }
+    } catch {}
+  };
+
+  const generateReport = async () => {
+    if (!patient?._id || reportLoading) return;
+    if (report) { setReportOpen(true); return; }
+    setReportLoading(true);
+    try {
+      const r = await fetch(`${BACKEND}/patients/${patient._id}/report`, { method: "POST" });
+      if (r.ok) {
+        const data = await r.json();
+        setReport(data);
+        setReportOpen(true);
+      }
+    } catch {} finally { setReportLoading(false); }
+  };
+
+  useEffect(() => { fetchGraph(); fetchInsights(); }, [patient?._id]);
 
   useEffect(() => {
     if (graphData && graphData.nodes.length === 0 && calls && calls.length > 0 && !syncing) {
@@ -457,6 +494,14 @@ export default function PatientGraph() {
                 {syncStatus}
               </span>
             )}
+            <button
+              onClick={generateReport}
+              disabled={reportLoading || (graphData?.nodes.length ?? 0) === 0}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-foreground/70 hover:text-foreground border border-border px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
+            >
+              {reportLoading ? <RefreshCw size={11} className="animate-spin" /> : <FileText size={11} />}
+              {reportLoading ? "Generating…" : report ? "View Report" : "AI Report"}
+            </button>
             {calls && calls.length > 0 && (
               <button
                 onClick={syncHistory}
@@ -674,40 +719,209 @@ export default function PatientGraph() {
               </g>
             </svg>
 
-            {/* Legend overlay — grouped by active layer */}
-            <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2 max-w-md">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
-                  .filter(([k]) => activeLayers.has(k))
-                  .map(([, layer]) => {
-                    const items = layer.types
-                      .filter(t => nodeCounts[t])
-                      .map(t => ({ t, count: nodeCounts[t] }));
-                    if (items.length === 0) return null;
-                    const dn: Record<string, string> = {
-                      Evidence: "Evidence", Topic: "Topic (legacy)",
-                      SpeechRate: "Rate", PauseFrequency: "Pause", HesitationCount: "Hesit.", WordFindingScore: "WF",
-                      CognitiveScore: "Cog", EmotionalScore: "Emo", MotorScore: "Motor",
-                      AcousticProfile: "Legacy", AcousticMarker: "Marker", ClinicalPattern: "Pattern",
-                    };
-                    return items.map(({ t, count }) => (
-                      <span key={t} className="flex items-center gap-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
-                        <span className="text-[9px] text-muted-foreground">{dn[t] ?? t}</span>
-                        <span className="text-[8px] text-foreground/40">{count}</span>
-                      </span>
-                    ));
-                  })}
-              </div>
+            {/* Legend overlay — grouped by layer */}
+            <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm border border-border/50 rounded-lg px-3 py-2.5 max-w-lg shadow-sm">
+              {(Object.entries(LAYERS) as [LayerKey, typeof LAYERS[LayerKey]][])
+                .filter(([k]) => activeLayers.has(k))
+                .map(([key, layer], gi) => {
+                  const items = layer.types
+                    .filter(t => nodeCounts[t])
+                    .map(t => ({ t, count: nodeCounts[t] }));
+                  if (items.length === 0) return null;
+                  const dn: Record<string, string> = {
+                    Patient: "Patient", Call: "Call", Evidence: "Evidence", Topic: "Topic (old)",
+                    Anomaly: "Anomaly",
+                    SpeechRate: "Speech Rate", PauseFrequency: "Pause Frequency",
+                    HesitationCount: "Hesitation Count", WordFindingScore: "Word Finding",
+                    AcousticProfile: "Acoustic (old)",
+                    CognitiveScore: "Cognitive Score", EmotionalScore: "Emotional Score",
+                    MotorScore: "Motor Score",
+                    AcousticMarker: "Acoustic Marker", ClinicalPattern: "Clinical Pattern",
+                    Condition: "Condition",
+                    Study: "Research Study", Provider: "Care Provider",
+                  };
+                  return (
+                    <div key={key} className={`flex items-center gap-x-2.5 flex-wrap ${gi > 0 ? "mt-1 pt-1 border-t border-border/30" : ""}`}>
+                      <span className="text-[8px] uppercase tracking-wider text-muted-foreground/50 w-10 shrink-0">{layer.label.split(" ")[0]}</span>
+                      {items.map(({ t, count }) => (
+                        <span key={t} className="flex items-center gap-1 py-0.5">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: NODE_STYLES[t]?.fill ?? "#94a3b8" }} />
+                          <span className="text-[10px] text-foreground/70">{dn[t] ?? t}</span>
+                          <span className="text-[9px] text-muted-foreground/50">{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })}
             </div>
 
             <div className="absolute top-3 right-3 text-[10px] text-muted-foreground/60">
               scroll to zoom · drag to pan · drag nodes to reposition
             </div>
+
+            {/* Report overlay */}
+            {reportOpen && report && (
+              <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-20 overflow-y-auto">
+                <div className="max-w-2xl mx-auto px-8 py-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2.5">
+                      <FileText className="w-4 h-4 text-foreground" strokeWidth={2} />
+                      <h2 className="text-[15px] font-semibold text-foreground">AI Clinical Report</h2>
+                    </div>
+                    <button onClick={() => setReportOpen(false)}
+                      className="p-1 rounded-md hover:bg-muted transition-colors">
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  </div>
+
+                  {/* Meta badges */}
+                  <div className="flex flex-wrap items-center gap-2 mb-5">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-foreground/5 text-foreground/70 border border-border">
+                      {report.callCount} calls analyzed
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200/50">
+                      {report.evidenceCount} evidence points
+                    </span>
+                    {report.anomalyCount > 0 && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200/50">
+                        {report.anomalyCount} anomalies
+                      </span>
+                    )}
+                    {report.conditions.map(c => (
+                      <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200/50">
+                        {c}
+                      </span>
+                    ))}
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-200/50">
+                      OpenAI + Tavily + Neo4j
+                    </span>
+                  </div>
+
+                  {/* Report body */}
+                  <div className="prose prose-sm max-w-none">
+                    {report.report.split("\n").map((line, i) => {
+                      const trimmed = line.trim();
+                      if (!trimmed) return <div key={i} className="h-2" />;
+                      if (trimmed.startsWith("**") && trimmed.endsWith("**")) {
+                        return <h3 key={i} className="text-[13px] font-semibold text-foreground mt-4 mb-1.5">{trimmed.replace(/\*\*/g, "")}</h3>;
+                      }
+                      if (/^#+\s/.test(trimmed)) {
+                        return <h3 key={i} className="text-[13px] font-semibold text-foreground mt-4 mb-1.5">{trimmed.replace(/^#+\s*/, "").replace(/\*\*/g, "")}</h3>;
+                      }
+                      if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+                        return <li key={i} className="text-[12px] text-foreground/80 leading-relaxed ml-4 list-disc">{trimmed.slice(2)}</li>;
+                      }
+                      if (/^\d+\.\s/.test(trimmed)) {
+                        return <li key={i} className="text-[12px] text-foreground/80 leading-relaxed ml-4 list-decimal">{trimmed.replace(/^\d+\.\s*/, "")}</li>;
+                      }
+                      return <p key={i} className="text-[12px] text-foreground/80 leading-relaxed mb-2">{trimmed}</p>;
+                    })}
+                  </div>
+
+                  {/* Sources */}
+                  {report.sources.length > 0 && (
+                    <div className="mt-6 pt-4 border-t border-border">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Research Sources</p>
+                      <div className="space-y-2">
+                        {report.sources.map((s, i) => (
+                          <div key={i} className="flex items-start gap-2 group">
+                            <span className="text-[9px] text-muted-foreground/50 mt-0.5 tabular-nums shrink-0">[{i + 1}]</span>
+                            <div className="flex-1 min-w-0">
+                              <a href={s.url} target="_blank" rel="noopener noreferrer"
+                                className="text-[11px] text-foreground hover:text-foreground/70 leading-snug transition-colors">
+                                {s.title || s.source}
+                                <ExternalLink className="w-2.5 h-2.5 inline ml-1 opacity-0 group-hover:opacity-60" />
+                              </a>
+                              <p className="text-[9px] text-muted-foreground">{s.source} · via {s.foundBy === "tavily_research" ? "Tavily Research API" : "Tavily"}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-6 pt-3 border-t border-border text-center">
+                    <p className="text-[9px] text-muted-foreground">
+                      Generated by Memo AI from {report.callCount} calls · Neo4j knowledge graph · Tavily research · OpenAI GPT-4o
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Inspector panel */}
+          {/* Sidebar: Insights + Inspector */}
           <div className="w-72 shrink-0 border-l border-border bg-white overflow-y-auto">
+            {/* Self-Evolution Insights */}
+            {insights.length > 0 && (
+              <div className="border-b border-border">
+                <button
+                  onClick={() => setInsightsOpen(p => !p)}
+                  className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-muted/30 transition-colors"
+                >
+                  <Brain className="w-3.5 h-3.5 text-violet-600" strokeWidth={2} />
+                  <span className="text-[11px] font-semibold text-foreground flex-1">Longitudinal Insights</span>
+                  <span className="text-[9px] text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">{insights.length}</span>
+                  {insightsOpen
+                    ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                    : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                </button>
+                {insightsOpen && (
+                  <div className="px-5 pb-4 space-y-2.5">
+                    <p className="text-[9px] text-muted-foreground leading-relaxed">
+                      Memo learns from every call. These insights are computed from the accumulated
+                      knowledge graph — they get more accurate with more data.
+                    </p>
+                    {insights.map((insight, i) => {
+                      const Icon = insight.direction === "declining" || insight.direction === "worsening"
+                        ? TrendingDown
+                        : insight.direction === "improving" || insight.direction === "growing"
+                        ? TrendingUp
+                        : Minus;
+                      const colorMap: Record<string, string> = {
+                        high: "border-red-200 bg-red-50/50",
+                        medium: "border-amber-200 bg-amber-50/50",
+                        low: "border-emerald-200 bg-emerald-50/30",
+                        info: "border-violet-200 bg-violet-50/30",
+                      };
+                      const iconColorMap: Record<string, string> = {
+                        high: "text-red-500",
+                        medium: "text-amber-500",
+                        low: "text-emerald-500",
+                        info: "text-violet-500",
+                      };
+                      return (
+                        <div key={i} className={`p-2.5 rounded-md border ${colorMap[insight.severity] ?? colorMap.info}`}>
+                          <div className="flex items-start gap-2">
+                            <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${iconColorMap[insight.severity] ?? "text-violet-500"}`} strokeWidth={2} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-medium text-foreground leading-snug">{insight.title}</p>
+                              <p className="text-[10px] text-foreground/60 leading-relaxed mt-1">{insight.detail}</p>
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[8px] text-muted-foreground bg-white/60 px-1.5 py-0.5 rounded">
+                                  {insight.dataPoints} calls analyzed
+                                </span>
+                                {insight.type === "evidence_accumulation" && (
+                                  <span className="text-[8px] text-violet-600 bg-white/60 px-1.5 py-0.5 rounded">
+                                    Neo4j + Senso
+                                  </span>
+                                )}
+                                {insight.type === "pause_trend" && (
+                                  <span className="text-[8px] text-violet-600 bg-white/60 px-1.5 py-0.5 rounded">
+                                    Modulate data
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {selected ? (
               <div className="p-5">
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border">

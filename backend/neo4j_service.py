@@ -627,6 +627,244 @@ def list_patients() -> list[dict]:
         return [dict(r) for r in result]
 
 
+def compute_trend_insights(patient_id: str) -> list[dict]:
+    """Analyze longitudinal trends across all calls and return structured insights."""
+    timeline = get_timeline(patient_id)
+    if len(timeline) < 2:
+        return []
+
+    insights: list[dict] = []
+    cog_scores = [(t["ts"], t["cognitive"]) for t in timeline if t.get("cognitive") is not None]
+    emo_scores = [(t["ts"], t["emotional"]) for t in timeline if t.get("emotional") is not None]
+
+    # Metric trends from Neo4j
+    metrics_by_call: list[dict] = []
+    try:
+        with get_driver().session(database=_db()) as s:
+            result = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
+                OPTIONAL MATCH (c)-[:HAS_METRIC]->(sr:SpeechRate)
+                OPTIONAL MATCH (c)-[:HAS_METRIC]->(pf:PauseFrequency)
+                OPTIONAL MATCH (c)-[:HAS_METRIC]->(hc:HesitationCount)
+                OPTIONAL MATCH (c)-[:HAS_SCORE]->(cog:CognitiveScore)
+                RETURN c.timestamp AS ts, sr.value AS speechRate, pf.value AS pauseFreq,
+                       hc.value AS hesitations, cog.value AS cognitive
+                ORDER BY c.timestamp ASC
+            """, id=patient_id)
+            metrics_by_call = [dict(r) for r in result]
+    except Exception:
+        pass
+
+    n_calls = len(timeline)
+
+    # Cognitive trend
+    if len(cog_scores) >= 2:
+        first_half = [s for _, s in cog_scores[:len(cog_scores)//2]]
+        second_half = [s for _, s in cog_scores[len(cog_scores)//2:]]
+        avg_first = sum(first_half) / len(first_half) if first_half else 0
+        avg_second = sum(second_half) / len(second_half) if second_half else 0
+        delta = avg_second - avg_first
+        direction = "declining" if delta < -5 else "improving" if delta > 5 else "stable"
+        latest = cog_scores[-1][1]
+        earliest = cog_scores[0][1]
+        insights.append({
+            "type": "cognitive_trend",
+            "title": f"Cognitive Score: {direction.title()}",
+            "detail": f"Tracked across {n_calls} calls. "
+                      f"Started at {earliest:.0f}, now at {latest:.0f} "
+                      f"({'↓' if delta < 0 else '↑'} {abs(delta):.0f} avg). "
+                      + (f"A decline of {abs(delta):.0f}+ points over multiple calls may indicate progressive cognitive change."
+                         if delta < -5 else
+                         f"Scores remain within a stable range — no significant change detected."
+                         if abs(delta) <= 5 else
+                         f"Improvement observed — engagement or intervention may be having a positive effect."),
+            "direction": direction,
+            "delta": round(delta, 1),
+            "dataPoints": n_calls,
+            "severity": "high" if delta < -10 else "medium" if delta < -5 else "low",
+        })
+
+    # Pause frequency trend
+    pf_vals = [m["pauseFreq"] for m in metrics_by_call if m.get("pauseFreq") is not None]
+    if len(pf_vals) >= 2:
+        pf_first = sum(pf_vals[:len(pf_vals)//2]) / max(1, len(pf_vals)//2)
+        pf_last = sum(pf_vals[len(pf_vals)//2:]) / max(1, len(pf_vals) - len(pf_vals)//2)
+        pf_delta = pf_last - pf_first
+        if abs(pf_delta) > 1.0:
+            insights.append({
+                "type": "pause_trend",
+                "title": f"Pause Frequency: {'Increasing' if pf_delta > 0 else 'Decreasing'}",
+                "detail": f"Average pause frequency moved from {pf_first:.1f}/min to {pf_last:.1f}/min "
+                          f"over {n_calls} calls. "
+                          + ("Increasing pauses above 6/min are associated with word-finding difficulty, an early marker for MCI (Modulate Velma-2 data)."
+                             if pf_last > 6 else
+                             f"Change of {abs(pf_delta):.1f}/min detected — monitoring continued."),
+                "direction": "worsening" if pf_delta > 0 else "improving",
+                "delta": round(pf_delta, 1),
+                "dataPoints": len(pf_vals),
+                "severity": "high" if pf_last > 8 else "medium" if pf_last > 6 else "low",
+            })
+
+    # Emotional trend
+    if len(emo_scores) >= 2:
+        emo_first = [s for _, s in emo_scores[:len(emo_scores)//2]]
+        emo_last = [s for _, s in emo_scores[len(emo_scores)//2:]]
+        avg_e1 = sum(emo_first) / len(emo_first) if emo_first else 0
+        avg_e2 = sum(emo_last) / len(emo_last) if emo_last else 0
+        e_delta = avg_e2 - avg_e1
+        if abs(e_delta) > 5:
+            insights.append({
+                "type": "emotional_trend",
+                "title": f"Emotional Score: {'Declining' if e_delta < 0 else 'Improving'}",
+                "detail": f"Emotional engagement moved from avg {avg_e1:.0f} to {avg_e2:.0f}. "
+                          + ("Sustained emotional flattening may indicate depression or apathy — consider a provider referral."
+                             if e_delta < -8 else
+                             f"Change of {abs(e_delta):.0f} points tracked across {n_calls} calls."),
+                "direction": "declining" if e_delta < 0 else "improving",
+                "delta": round(e_delta, 1),
+                "dataPoints": n_calls,
+                "severity": "medium" if e_delta < -8 else "low",
+            })
+
+    # Anomaly accumulation
+    try:
+        with get_driver().session(database=_db()) as s:
+            result = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:TRIGGERED]->(an:Anomaly)
+                RETURN count(an) AS anomalyCount,
+                       collect(DISTINCT an.type) AS types
+            """, id=patient_id)
+            rec = result.single()
+            if rec and rec["anomalyCount"] > 1:
+                types = [t for t in (rec["types"] or []) if t]
+                insights.append({
+                    "type": "anomaly_pattern",
+                    "title": f"{rec['anomalyCount']} Anomalies Detected Across Calls",
+                    "detail": f"Signal types: {', '.join(t.replace('_', ' ') for t in types)}. "
+                              f"Recurring anomalies across multiple calls strengthen the clinical signal — "
+                              f"a single-call anomaly could be noise, but {rec['anomalyCount']} "
+                              f"across {n_calls} calls suggests a real pattern.",
+                    "direction": "worsening",
+                    "delta": rec["anomalyCount"],
+                    "dataPoints": n_calls,
+                    "severity": "high" if rec["anomalyCount"] >= 3 else "medium",
+                })
+    except Exception:
+        pass
+
+    # Evidence count
+    try:
+        with get_driver().session(database=_db()) as s:
+            result = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:EVIDENCED_BY]->(ev:Evidence)
+                RETURN count(ev) AS evCount,
+                       count(DISTINCT c) AS callsWithEvidence
+            """, id=patient_id)
+            rec = result.single()
+            if rec and rec["evCount"] > 0:
+                insights.append({
+                    "type": "evidence_accumulation",
+                    "title": f"{rec['evCount']} Evidence Points Collected",
+                    "detail": f"Across {rec['callsWithEvidence']} calls, Memo extracted {rec['evCount']} "
+                              f"verbatim patient quotes as evidence. Each quote is linked to clinical "
+                              f"conditions in the knowledge graph — building a longitudinal record that "
+                              f"gets more reliable with every call.",
+                    "direction": "growing",
+                    "delta": rec["evCount"],
+                    "dataPoints": rec["callsWithEvidence"],
+                    "severity": "info",
+                })
+    except Exception:
+        pass
+
+    return insights
+
+
+def gather_report_context(patient_id: str) -> dict:
+    """Gather all graph data for a patient into a structured context for report generation."""
+    ctx: dict = {"callCount": 0, "evidence": [], "anomalies": [], "conditions": [],
+                 "metrics": [], "scores": [], "studies": [], "providers": []}
+    try:
+        with get_driver().session(database=_db()) as s:
+            # Patient info
+            p = s.run("MATCH (p:Patient {id: $id}) RETURN p", id=patient_id).single()
+            if p:
+                ctx["patientName"] = p["p"].get("name", "Patient")
+
+            # Calls
+            calls = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
+                RETURN c.timestamp AS ts, c.summary AS summary, c.duration AS dur
+                ORDER BY c.timestamp ASC
+            """, id=patient_id)
+            call_list = [dict(r) for r in calls]
+            ctx["callCount"] = len(call_list)
+            ctx["callSummaries"] = [
+                {"date": r["ts"], "summary": r.get("summary", ""), "duration": r.get("dur", 0)}
+                for r in call_list
+            ]
+
+            # Evidence
+            ev_res = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:EVIDENCED_BY]->(e:Evidence)
+                RETURN e.quote AS quote, e.signal AS signal, e.explanation AS explanation,
+                       c.timestamp AS ts
+                ORDER BY c.timestamp ASC
+            """, id=patient_id)
+            ctx["evidence"] = [dict(r) for r in ev_res]
+
+            # Anomalies
+            an_res = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:TRIGGERED]->(an:Anomaly)
+                RETURN an.type AS type, an.severity AS severity, an.description AS description,
+                       c.timestamp AS ts
+                ORDER BY c.timestamp ASC
+            """, id=patient_id)
+            ctx["anomalies"] = [dict(r) for r in an_res]
+
+            # Scores over time
+            sc_res = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)
+                OPTIONAL MATCH (c)-[:HAS_SCORE]->(cog:CognitiveScore)
+                OPTIONAL MATCH (c)-[:HAS_SCORE]->(emo:EmotionalScore)
+                OPTIONAL MATCH (c)-[:HAS_SCORE]->(mot:MotorScore)
+                OPTIONAL MATCH (c)-[:HAS_METRIC]->(sr:SpeechRate)
+                OPTIONAL MATCH (c)-[:HAS_METRIC]->(pf:PauseFrequency)
+                RETURN c.timestamp AS ts,
+                       cog.value AS cognitive, emo.value AS emotional, mot.value AS motor,
+                       sr.value AS speechRate, pf.value AS pauseFreq
+                ORDER BY c.timestamp ASC
+            """, id=patient_id)
+            ctx["scores"] = [dict(r) for r in sc_res]
+
+            # Conditions detected
+            cond_res = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:EVIDENCED_BY]->(e:Evidence)-[:RELATES_TO]->(cond:Condition)
+                RETURN DISTINCT cond.name AS name, cond.description AS desc
+            """, id=patient_id)
+            ctx["conditions"] = [dict(r) for r in cond_res]
+
+            # Research studies
+            st_res = s.run("""
+                MATCH (p:Patient {id: $id})-[:HAD_CALL]->(c:Call)-[:TRIGGERED]->(an:Anomaly)-[:SUPPORTED_BY]->(st:Study)
+                RETURN DISTINCT st.title AS title, st.url AS url, st.source AS source,
+                       st.excerpt AS excerpt, st.foundBy AS foundBy
+            """, id=patient_id)
+            ctx["studies"] = [dict(r) for r in st_res]
+
+            # Providers
+            pr_res = s.run("""
+                MATCH (cond:Condition)-[:TREATED_AT]->(pr:Provider)
+                RETURN DISTINCT pr.name AS name, pr.specialty AS specialty,
+                       pr.address AS address, pr.foundBy AS foundBy
+            """)
+            ctx["providers"] = [dict(r) for r in pr_res][:6]
+
+    except Exception as e:
+        logger.warning(f"Report context gather failed: {e}")
+    return ctx
+
+
 def attach_research(call_id: str, items: list[dict]):
     with get_driver().session(database=_db()) as s:
         for item in items:

@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, User, Bot, Eye, EyeOff, Phone, Brain, Activity } from "lucide-react";
+import { ChevronDown, ChevronRight, User, Bot, Eye, EyeOff, Phone } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -141,21 +141,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Self-evolution context */}
-          {calls.length >= 2 && (
-            <div className="mx-8 mt-4 flex items-center gap-3 px-3 py-2 bg-violet-50/50 border border-violet-200/30 rounded-lg">
-              <Brain className="w-3.5 h-3.5 text-violet-500 shrink-0" strokeWidth={2} />
-              <div className="flex items-center gap-2 flex-wrap flex-1">
-                <span className="text-[10px] text-violet-700 font-medium">Self-evolving analysis</span>
-                <span className="text-[9px] text-violet-500 bg-white/60 px-1.5 py-0.5 rounded">{calls.length} calls learned</span>
-                {calls.some((c: any) => c.sensoContextUsed) && (
-                  <span className="text-[9px] text-violet-500 bg-white/60 px-1.5 py-0.5 rounded">Senso memory active</span>
-                )}
-                <span className="text-[9px] text-violet-500 bg-white/60 px-1.5 py-0.5 rounded">Neo4j graph building</span>
-              </div>
-              <Activity className="w-3 h-3 text-violet-400 animate-pulse" strokeWidth={2} />
-            </div>
-          )}
 
           {/* Chart */}
           <div className="px-8 pt-5 pb-4">
